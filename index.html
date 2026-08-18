@@ -315,15 +315,9 @@ function App() {
   const [toast, setToast] = useState(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [businessName, setBusinessName] = useState("");
-  const [sessionReceipts, setSessionReceipts] = useState(() => {
-    try {
-      const saved = localStorage.getItem("vendedores_receipts");
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) { return []; }
-  });
-  const [selectedReceipt, setSelectedReceipt] = useState(null);
-  const [selectMode, setSelectMode] = useState(false);
+  const [sessionReceipts, setSessionReceipts] = useState([]);
   const [selectedReceiptIds, setSelectedReceiptIds] = useState([]);
+  const [selectedReceipt, setSelectedReceipt] = useState(null);
   const [lastReceipt, setLastReceipt] = useState(null);
   const [copyToast, setCopyToast] = useState(false);
 
@@ -387,10 +381,6 @@ function App() {
   }, [items]);
 
   useEffect(() => {
-    try { localStorage.setItem("vendedores_receipts", JSON.stringify(sessionReceipts)); } catch (e) {}
-  }, [sessionReceipts]);
-
-  useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 1600);
     return () => clearTimeout(t);
@@ -401,6 +391,10 @@ function App() {
     const t = setTimeout(() => setCopyToast(false), 1800);
     return () => clearTimeout(t);
   }, [copyToast]);
+
+  useEffect(() => {
+    setSelectedReceiptIds(prev => prev.filter(id => sessionReceipts.some(r => r.id === id)));
+  }, [sessionReceipts]);
 
   const filteredItems = useMemo(() => {
     let list = items;
@@ -451,6 +445,7 @@ function App() {
     };
     downloadReceiptImage(receipt);
     setSessionReceipts(list => [receipt, ...list]);
+    setSelectedReceiptIds([]);
     setLastReceipt(receipt);
     setCart({});
     setBusinessName("");
@@ -467,20 +462,45 @@ function App() {
     window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank");
   };
 
-  const RECEIPTS_WHATSAPP_NUMBER = "5493757527231";
-
-  const sendSelectedReceipts = () => {
-    const toSend = sessionReceipts.filter(r => selectedReceiptIds.includes(r.id));
-    if (toSend.length === 0) return;
-    const sorted = [...toSend].sort((a, b) => a.date - b.date);
-    const text = sorted.map(receiptToText).join("\n\n— — —\n\n");
-    window.open("https://wa.me/" + RECEIPTS_WHATSAPP_NUMBER + "?text=" + encodeURIComponent(text), "_blank");
-    setSelectMode(false);
-    setSelectedReceiptIds([]);
+  const toggleReceiptSelection = (id) => {
+    setSelectedReceiptIds(prev =>
+      prev.includes(id) ? prev.filter(receiptId => receiptId !== id) : [...prev, id]
+    );
   };
 
-  const toggleReceiptSelected = (id) => {
-    setSelectedReceiptIds(list => list.includes(id) ? list.filter(x => x !== id) : [...list, id]);
+  const toggleSelectAllReceipts = () => {
+    setSelectedReceiptIds(prev =>
+      prev.length === sessionReceipts.length ? [] : sessionReceipts.map(r => r.id)
+    );
+  };
+
+  const deleteSelectedReceipts = () => {
+    if (selectedReceiptIds.length === 0) return;
+    const amount = selectedReceiptIds.length;
+    if (!window.confirm("¿Eliminar " + amount + " recibo" + (amount === 1 ? "" : "s") + "? Esta acción no se puede deshacer.")) return;
+
+    setSessionReceipts(prev => prev.filter(r => !selectedReceiptIds.includes(r.id)));
+    setSelectedReceiptIds([]);
+    if (selectedReceipt && selectedReceiptIds.includes(selectedReceipt.id)) {
+      setSelectedReceipt(null);
+    }
+    setToast(amount + " recibo" + (amount === 1 ? "" : "s") + " eliminado" + (amount === 1 ? "" : "s"));
+  };
+
+  const shareSelectedReceipts = async () => {
+    if (selectedReceiptIds.length === 0) return;
+
+    const selected = sessionReceipts.filter(r => selectedReceiptIds.includes(r.id));
+    const text = selected.map(receiptToText).join("\n\n--------------------\n\n");
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ text });
+        return;
+      } catch (e) {}
+    }
+
+    window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank");
   };
 
   const copyReceipt = async (r) => {
@@ -611,58 +631,163 @@ function App() {
 
       {view === "receipts" && (
         <div style={{ flex: 1, padding: "16px 14px 40px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 4 }}>
             <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 18 }}>Recibos de esta sesión</div>
             {sessionReceipts.length > 0 && (
               <button
-                onClick={() => { setSelectMode(m => !m); setSelectedReceiptIds([]); }}
-                style={{ background: selectMode ? "#173A33" : "rgba(23,58,51,0.08)", color: selectMode ? "#fff" : "#173A33", border: "none", borderRadius: 8, padding: "6px 11px", fontWeight: 700, fontSize: 12.5, flexShrink: 0 }}
+                onClick={toggleSelectAllReceipts}
+                style={{
+                  background: selectedReceiptIds.length === sessionReceipts.length ? "#D9A441" : "#FFFFFF",
+                  color: "#173A33",
+                  border: "1.5px solid " + (selectedReceiptIds.length === sessionReceipts.length ? "#D9A441" : "#D8D4C8"),
+                  borderRadius: 10,
+                  padding: "8px 10px",
+                  fontWeight: 700,
+                  fontSize: 12,
+                  flexShrink: 0
+                }}
               >
-                {selectMode ? "Cancelar" : "Seleccionar"}
+                {selectedReceiptIds.length === sessionReceipts.length ? "Deseleccionar todos" : "Seleccionar todos"}
               </button>
             )}
           </div>
+
           <div style={{ fontSize: 12.5, color: "#6B7A74", marginBottom: 14 }}>
-            {selectMode ? "Tocá los recibos que querés enviar." : "Se guardan en este celular. Podés compartirlos por WhatsApp para no perderlos."}
+            Seleccioná uno o varios recibos para enviarlos por WhatsApp o eliminarlos.
           </div>
+
           {sessionReceipts.length === 0 ? (
             <div style={{ textAlign: "center", padding: "60px 20px", color: "#6B7A74" }}>
               <StoreIcon size={28} color="#6B7A74" />
               <div style={{ fontSize: 14, marginTop: 10 }}>Todavía no hiciste ninguna venta</div>
             </div>
           ) : (
-            sessionReceipts.map(r => {
-              const checked = selectedReceiptIds.includes(r.id);
-              return (
-                <button
-                  key={r.id}
-                  onClick={() => selectMode ? toggleReceiptSelected(r.id) : setSelectedReceipt(r)}
-                  style={{ width: "100%", textAlign: "left", background: "#FFFFFF", borderRadius: 12, padding: "12px 13px", marginBottom: 8, border: checked ? "1.5px solid #2E6B5E" : "1.5px solid transparent", display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: "0 1px 2px rgba(23,58,51,0.06)" }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", minWidth: 0, gap: 10 }}>
-                    {selectMode && (
-                      <div style={{ width: 20, height: 20, borderRadius: 6, border: checked ? "none" : "1.5px solid #C7C2B4", background: checked ? "#2E6B5E" : "transparent", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        {checked && <CheckIcon size={13} color="#fff" />}
-                      </div>
-                    )}
-                    <div style={{ minWidth: 0 }}>
+            <>
+              {sessionReceipts.map(r => {
+                const isSelected = selectedReceiptIds.includes(r.id);
+                return (
+                  <div
+                    key={r.id}
+                    onClick={() => toggleReceiptSelection(r.id)}
+                    style={{
+                      width: "100%",
+                      textAlign: "left",
+                      background: isSelected ? "#F1E8C9" : "#FFFFFF",
+                      borderRadius: 12,
+                      padding: "11px 12px",
+                      marginBottom: 8,
+                      border: isSelected ? "1.5px solid #D9A441" : "1.5px solid transparent",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      boxShadow: "0 1px 2px rgba(23,58,51,0.06)",
+                      cursor: "pointer"
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 24,
+                        height: 24,
+                        borderRadius: 7,
+                        border: isSelected ? "2px solid #173A33" : "1.5px solid #B9B4A8",
+                        background: isSelected ? "#173A33" : "#FFFFFF",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexShrink: 0
+                      }}
+                    >
+                      {isSelected && <CheckIcon size={15} color="#FFFFFF" />}
+                    </div>
+
+                    <div style={{ minWidth: 0, flex: 1 }}>
                       <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 2 }}>{r.businessName}</div>
                       <div style={{ fontSize: 12, color: "#6B7A74" }}>{fmtDate(r.date)} · {r.items.length} artículos</div>
                     </div>
-                  </div>
-                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 13.5, flexShrink: 0, marginLeft: 10 }}>{formatMoney(r.total)}</div>
-                </button>
-              );
-            })
-          )}
-        </div>
-      )}
 
-      {selectMode && selectedReceiptIds.length > 0 && (
-        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, maxWidth: 480, margin: "0 auto", background: "#F4F2EC", borderTop: "1px solid #E4E0D4", padding: "10px 14px calc(10px + env(safe-area-inset-bottom))", zIndex: 30 }}>
-          <button onClick={sendSelectedReceipts} style={{ width: "100%", background: "#25D366", color: "#fff", border: "none", borderRadius: 12, padding: "13px 20px", fontWeight: 700, fontSize: 14.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-            <ShareIcon size={17} /> Enviar {selectedReceiptIds.length} recibo{selectedReceiptIds.length > 1 ? "s" : ""} por WhatsApp
-          </button>
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 13.5, flexShrink: 0, marginLeft: 4 }}>
+                      {formatMoney(r.total)}
+                    </div>
+
+                    <button
+                      onClick={e => {
+                        e.stopPropagation();
+                        setSelectedReceipt(r);
+                      }}
+                      style={{
+                        background: "#F4F2EC",
+                        color: "#173A33",
+                        border: "none",
+                        borderRadius: 8,
+                        padding: "7px 8px",
+                        fontSize: 11.5,
+                        fontWeight: 700,
+                        flexShrink: 0
+                      }}
+                    >
+                      Ver
+                    </button>
+                  </div>
+                );
+              })}
+
+              {selectedReceiptIds.length > 0 && (
+                <div
+                  style={{
+                    position: "sticky",
+                    bottom: 10,
+                    background: "#173A33",
+                    borderRadius: 14,
+                    padding: "10px",
+                    marginTop: 12,
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 8,
+                    boxShadow: "0 6px 20px rgba(0,0,0,0.18)",
+                    zIndex: 10
+                  }}
+                >
+                  <button
+                    onClick={shareSelectedReceipts}
+                    style={{
+                      background: "#25D366",
+                      color: "#FFFFFF",
+                      border: "none",
+                      borderRadius: 10,
+                      padding: "12px 8px",
+                      fontWeight: 700,
+                      fontSize: 12.5,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6
+                    }}
+                  >
+                    <ShareIcon size={16} /> WhatsApp ({selectedReceiptIds.length})
+                  </button>
+
+                  <button
+                    onClick={deleteSelectedReceipts}
+                    style={{
+                      background: "#B0532C",
+                      color: "#FFFFFF",
+                      border: "none",
+                      borderRadius: 10,
+                      padding: "12px 8px",
+                      fontWeight: 700,
+                      fontSize: 12.5,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6
+                    }}
+                  >
+                    <TrashIcon size={16} /> Eliminar ({selectedReceiptIds.length})
+                  </button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 
