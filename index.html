@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Vendedores</title>
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#173A33">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Vendedores">
+<link rel="icon" href="./icon-192.png">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
+  html, body { background: #F4F2EC; }
+  body { font-family: 'Inter', system-ui, sans-serif; color: #1C231F; }
+  ::-webkit-scrollbar { display: none; }
+  button { font-family: inherit; cursor: pointer; }
+  input { font-family: inherit; }
+  #root { min-height: 100vh; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useMemo, useCallback, useEffect } = React;
+
+// ---------------------------------------------------------------------
+// CONFIGURACION: datos de la Google Sheet (API oficial de Google, con
+// clave de API). Mientras API_KEY quede vacio, la app usa el catalogo
+// incrustado de mas abajo como respaldo.
+// Formato esperado de la hoja: columnas Producto, Precio, Ofertas
+// (tambien acepta code/category/name/price o Codigo/Descripcion/Precio/Categoria)
+// ---------------------------------------------------------------------
+const SHEET_ID = "1rvO-Yrqe4d4lUrIqePB3Uf8r3n2w5rfquiordvWeLVw";
+const SHEET_TAB = "Sheet1";
+const API_KEY = "AIzaSyDK0ypq5wYz7M2umbeLDMhch7qNTJ2dVdI";
+const SHEET_API_URL = API_KEY
+  ? "https://sheets.googleapis.com/v4/spreadsheets/" + SHEET_ID + "/values/" + encodeURIComponent(SHEET_TAB) + "?key=" + API_KEY
+  : "";
+
+const FALLBACK_ITEMS = [{"code":"1902/2","desc":"102 ANOS MUJER X30 COMPRIM","price":17800.0,"category":"Analgesicos"},{"code":"2078/1","desc":"102 ANOS PLUS X 30 COMPRIMIDOS","price":15000.0,"category":"Analgesicos"},{"code":"1/7","desc":"ACTRON 400 X 20 CAPSULAS","price":6000.0,"category":"Analgesicos"},{"code":"3/1","desc":"ACTRON 600 X 20 CAPSULAS","price":13500.0,"category":"Analgesicos"},{"code":"1946/6","desc":"ACTRON MIGRA X 10 CAPSULAS","price":4080.0,"category":"Analgesicos"},{"code":"5/5","desc":"ACTRON MUJER X 10 CAPSULAS","price":3450.0,"category":"Analgesicos"},{"code":"3162/4","desc":"ALERMUC X 10 COMP","price":3850.0,"category":"Analgesicos"},{"code":"8/6","desc":"ALIKAL SABOR X30","price":22750.0,"category":"Analgesicos"},{"code":"9/3","desc":"ALIKAL TRADICIONAL X30","price":22750.0,"category":"Analgesicos"},{"code":"13/0","desc":"ASPIRINA PREVENT X 50","price":8400.0,"category":"Analgesicos"},{"code":"15/4","desc":"ASPIRINA V3 NINOS X 100","price":4500.0,"category":"Analgesicos"},{"code":"376/4","desc":"ASPIRINETAS X 28","price":1720.0,"category":"Analgesicos"},{"code":"16/1","desc":"ASPIRINETAS X 98","price":6000.0,"category":"Analgesicos"},{"code":"3338/5","desc":"ATOMO DESINFLAM.FORTE X 100 GR","price":18000.0,"category":"Analgesicos"},{"code":"17/8","desc":"ATOMO X 110 GRS","price":14000.0,"category":"Analgesicos"},{"code":"19/2","desc":"BAYASPIRINA C FRIA X 24 SOBRES","price":27800.0,"category":"Analgesicos"},{"code":"20/8","desc":"BAYASPIRINA C X 24 CALIENTE","price":34300.0,"category":"Analgesicos"},{"code":"22/2","desc":"BAYASPIRINA FORTE X 20 COMP.","price":5100.0,"category":"Analgesicos"},{"code":"24/6","desc":"BAYASPIRINA X 30 COMP.","price":5780.0,"category":"Analgesicos"},{"code":"3123/5","desc":"BENGUE POTE 150 GRAMOS","price":16800.0,"category":"Analgesicos"},{"code":"3267/2","desc":"BUSCAPINA DUO GOTAS X 20 ML","price":11825.0,"category":"Analgesicos"},{"code":"30/7","desc":"BUSCAPINA DUO X 10 COMPRIMIDOS","price":7800.0,"category":"Analgesicos"},{"code":"3248/1","desc":"BUSCAPINA DUO X 20 COMPRIMIDOS","price":15600.0,"category":"Analgesicos"},{"code":"31/4","desc":"BUSCAPINA DUO X 60 COMPRIMIDOS","price":46800.0,"category":"Analgesicos"},{"code":"29/1","desc":"BUSCAPINA FEM X 6","price":4000.0,"category":"Analgesicos"},{"code":"32/1","desc":"BUSCAPINA PERLAS X 10","price":5750.0,"category":"Analgesicos"},{"code":"1846/3","desc":"BUSCAPINA PERLAS X 20","price":11500.0,"category":"Analgesicos"},{"code":"1847/0","desc":"BUSCAPINA PERLAS X 50","price":28200.0,"category":"Analgesicos"},{"code":"36/9","desc":"CAFIASPIRINA X 30 COMP.","price":6880.0,"category":"Analgesicos"},{"code":"3242/9","desc":"CARAMELOS GARGALETAS X 9 UNID","price":4800.0,"category":"Analgesicos"},{"code":"39/0","desc":"CARAMELOS GARGAMPROLX100GRS","price":2835.0,"category":"Analgesicos"},{"code":"3240/5","desc":"CARAMELOS GRIPABEN X 9 UNID","price":2650.0,"category":"Analgesicos"},{"code":"2053/8","desc":"CHICLE LAXANTE KRITEL X 6","price":4000.0,"category":"Analgesicos"},{"code":"146/1","desc":"DICLOFENC+B12 X 15 COMPRIMIDO","price":12900.0,"category":"Analgesicos"},{"code":"42/0","desc":"DORIXINA X 10 COMPRIMIDOS","price":2850.0,"category":"Analgesicos"},{"code":"3144/0","desc":"FABOG.400 X 10 CAPSULAS BLAND.","price":1600.0,"category":"Analgesicos"},{"code":"3363/7","desc":"FABOG.400 X 20 CAPSULAS BLAND.","price":3200.0,"category":"Analgesicos"},{"code":"46/8","desc":"FABOG.600 X 20 CAPSULAS BLAND.","price":6200.0,"category":"Analgesicos"},{"code":"47/5","desc":"FABOGESIC IBUPROF 4 % JARABE","price":4750.0,"category":"Analgesicos"},{"code":"1997/8","desc":"GENIOL PLUS X 12 CAPSULAS","price":3200.0,"category":"Analgesicos"},{"code":"1948/0","desc":"GRIPABEN DESONG.TE X 50 SOBRES","price":60000.0,"category":"Analgesicos"},{"code":"1935/0","desc":"GRIPABEN PLUS X 20 COMPRIMIDOS","price":4500.0,"category":"Analgesicos"},{"code":"57/4","desc":"HEPATALGINA X45 ML","price":7000.0,"category":"Analgesicos"},{"code":"1983/1","desc":"IBU EVANOL FORTE X 20 CAPSULAS","price":6180.0,"category":"Analgesicos"},{"code":"2056/9","desc":"IBU EVANOL MAX X 20 CAPSULAS","price":7550.0,"category":"Analgesicos"},{"code":"63/5","desc":"IBU EVANOL PLUS X 20 CAPSULAS","price":5520.0,"category":"Analgesicos"},{"code":"64/2","desc":"IBU EVANOL RAP.ACC.X 20 CAPS.","price":4800.0,"category":"Analgesicos"},{"code":"1769/9","desc":"IBU EVANOL ULTRA X 20 CAPSULAS","price":10000.0,"category":"Analgesicos"},{"code":"163/8","desc":"IBUPROF JAR 4 % EST/KLONAL","price":1800.0,"category":"Analgesicos"},{"code":"75/8","desc":"MEJORAL NINOS X 20 COMPRIMIDOS","price":5650.0,"category":"Analgesicos"},{"code":"3169/3","desc":"MEJORAL NINOS X 30 BLISTER","price":81500.0,"category":"Analgesicos"},{"code":"1951/0","desc":"MIGRAL 500 COMPRIMIDOS X 100","price":44650.0,"category":"Analgesicos"},{"code":"77/2","desc":"MIGRAL 500 X 10 COMPRIMIDOS","price":4650.0,"category":"Analgesicos"},{"code":"1950/3","desc":"MIGRAL COMPUESTO X 100 COMP","price":45800.0,"category":"Analgesicos"},{"code":"78/9","desc":"MIGRAL CTO X 10 COMPRIMIDOS","price":4750.0,"category":"Analgesicos"},{"code":"3233/7","desc":"MUELITA TRADICINAL GOTAS","price":10500.0,"category":"Analgesicos"},{"code":"82/6","desc":"MYLANTA X 8 frutal","price":4150.0,"category":"Analgesicos"},{"code":"171/3","desc":"NEXT EXP X 10 X 20 BLISTERS","price":75000.0,"category":"Analgesicos"},{"code":"2000/2","desc":"NEXT FORTE TE X 10 SOBRES","price":20000.0,"category":"Analgesicos"},{"code":"2097/2","desc":"NEXT PLUS X 20 COMPRIMIDOS","price":7500.0,"category":"Analgesicos"},{"code":"2002/6","desc":"NEXT TE X 1 SOBRES","price":2100.0,"category":"Analgesicos"},{"code":"1999/2","desc":"NEXT X 10 COMPRIMIDOS","price":3750.0,"category":"Analgesicos"},{"code":"3312/5","desc":"NORGESTREL MAX DIA DESPUES X 1","price":2650.0,"category":"Analgesicos"},{"code":"83/3","desc":"NORGESTREL PLUS X21","price":5650.0,"category":"Analgesicos"},{"code":"1949/7","desc":"NOVALGINA JARABE X 100 ML","price":12000.0,"category":"Analgesicos"},{"code":"84/0","desc":"NOVALGINA X 10 COMPRIMIDOS","price":4500.0,"category":"Analgesicos"},{"code":"85/7","desc":"NUEVAPINA CARDIO X 50 COMP","price":3000.0,"category":"Analgesicos"},{"code":"374/0","desc":"P.E.","price":500.0,"category":"Analgesicos"},{"code":"3264/1","desc":"PALATROBIL COMP X 20","price":8100.0,"category":"Analgesicos"},{"code":"2084/2","desc":"PALATROBIL GOTAS X 45 ML","price":6000.0,"category":"Analgesicos"},{"code":"2083/5","desc":"PALATROBIL TE HIERBAS X 25S","price":5000.0,"category":"Analgesicos"},{"code":"94/9","desc":"QURA PLUS X 20 COMPRIMIDOS","price":8600.0,"category":"Analgesicos"},{"code":"3270/2","desc":"REFENAX COLIRIO X 15 ML","price":10000.0,"category":"Analgesicos"},{"code":"3246/7","desc":"REFENAX GOTAS NASALES","price":4350.0,"category":"Analgesicos"},{"code":"2013/2","desc":"REFRIANEX CTO X 20 COMP","price":8300.0,"category":"Analgesicos"},{"code":"2014/9","desc":"REFRIANEX X 20 COMP","price":7500.0,"category":"Analgesicos"},{"code":"3245/0","desc":"RENNIE X 96 UNIDADES","price":44550.0,"category":"Analgesicos"},{"code":"96/3","desc":"RENNIE X12","price":5660.0,"category":"Analgesicos"},{"code":"3209/2","desc":"RESAQUIT X12 COMPRIMIDOS","price":6500.0,"category":"Analgesicos"},{"code":"1749/1","desc":"SERTAL CTO X 200","price":142500.0,"category":"Analgesicos"},{"code":"97/0","desc":"SERTAL CTO X10","price":7200.0,"category":"Analgesicos"},{"code":"98/7","desc":"SERTAL PERLAS X 10","price":5000.0,"category":"Analgesicos"},{"code":"1754/5","desc":"SOBRES GRIPABEN TE X 1","price":1200.0,"category":"Analgesicos"},{"code":"128/7","desc":"SOBRES VICK VIT COMUN X 1","price":2000.0,"category":"Analgesicos"},{"code":"127/0","desc":"SOBRES VICK VITAP FORTEX 1","price":2200.0,"category":"Analgesicos"},{"code":"104/1","desc":"TABCIN ANTIGRIPAL X 20 CAP","price":7150.0,"category":"Analgesicos"},{"code":"101/0","desc":"TABCIN COMPSTO ( VERDE) X 20","price":7650.0,"category":"Analgesicos"},{"code":"1735/4","desc":"TABLETA TAFIROL 500 X 10","price":1700.0,"category":"Analgesicos"},{"code":"112/6","desc":"TAFIROL 1 GR. X 24 COMPRIMIDOS","price":6500.0,"category":"Analgesicos"},{"code":"1875/3","desc":"TAFIROL 1 GR. X 8 COMPRIMIDOS","price":2170.0,"category":"Analgesicos"},{"code":"3255/9","desc":"TAFIROL 500 EXPEN. X 40 BLIST.","price":70000.0,"category":"Analgesicos"},{"code":"1952/7","desc":"TAFIROL 500 X 100 COMP.","price":16500.0,"category":"Analgesicos"},{"code":"106/5","desc":"TAFIROL 650 FORTE EXPEN.X 30 B","price":65000.0,"category":"Analgesicos"},{"code":"110/2","desc":"TAFIROL 650 FORTE X 30 COMP.","price":6500.0,"category":"Analgesicos"},{"code":"3351/4","desc":"TAFIROL DUO X 10 COMPRIMIDOS","price":4600.0,"category":"Analgesicos"},{"code":"108/9","desc":"TAFIROL FEM X 10 COMPRIMIDOS","price":4200.0,"category":"Analgesicos"},{"code":"3286/3","desc":"TAFIROL MIGRA X 10 COMPRIMIDOS","price":5400.0,"category":"Analgesicos"},{"code":"1998/5","desc":"TAFIROL PLUS X 16 CAPSULAS","price":5500.0,"category":"Analgesicos"},{"code":"107/2","desc":"TAFIROL PLUS X 24 CAPSULAS","price":8250.0,"category":"Analgesicos"},{"code":"3197/6","desc":"TAFIROL PLUS X 30 BLISTERS","price":75000.0,"category":"Analgesicos"},{"code":"1905/3","desc":"TAFIROL PLUS X 8 CAPSULAS","price":2500.0,"category":"Analgesicos"},{"code":"105/8","desc":"TAFIROL RESACA X 8 COMPRIMIDOS","price":3650.0,"category":"Analgesicos"},{"code":"3148/8","desc":"TAFIROLITO 80 MG X 20 COMPRIM.","price":6200.0,"category":"Analgesicos"},{"code":"115/7","desc":"TETRALGIN X 10 COMP.","price":4950.0,"category":"Analgesicos"},{"code":"116/4","desc":"TOSTOP ADULTO JARABE","price":6050.0,"category":"Analgesicos"},{"code":"121/8","desc":"TOSTOP NINOS JARABE","price":6050.0,"category":"Analgesicos"},{"code":"123/2","desc":"UVASAL X30 NARANJA","price":13580.0,"category":"Analgesicos"},{"code":"124/9","desc":"UVASAL X30 TRADICIONAL","price":13580.0,"category":"Analgesicos"},{"code":"125/6","desc":"VICK VAPORU LATA X 12 GR","price":4750.0,"category":"Analgesicos"},{"code":"1733/0","desc":"VICK VITAP.COMUN X 50 SOBRES","price":95000.0,"category":"Analgesicos"},{"code":"3302/6","desc":"VICK VITAP.FORTE X 50 SOBRES","price":110000.0,"category":"Analgesicos"},{"code":"1929/9","desc":"WUNDERSBALSAMS X 100 ML","price":7500.0,"category":"Analgesicos"},{"code":"2071/2","desc":"ALLOPURINOL 300 X 10 COMP","price":3000.0,"category":"Genericos"},{"code":"3175/4","desc":"ALMAXIMO 100 X 2 COMPRIMIDOS","price":1400.0,"category":"Genericos"},{"code":"131/7","desc":"ALMAXIMO 100 X 2 MASTICABLES","price":1600.0,"category":"Genericos"},{"code":"3347/7","desc":"ALMAXIMO 100 X 20 COMPRIMIDOS","price":14000.0,"category":"Genericos"},{"code":"1900/8","desc":"ALMAXIMO 100 x 20 MASTICABLES","price":15500.0,"category":"Genericos"},{"code":"132/4","desc":"ALMAXIMO 36 5 MG X 30 COMP","price":30000.0,"category":"Genericos"},{"code":"3287/0","desc":"ALMAXIMO 36 TALADAFILO X 2 U","price":8000.0,"category":"Genericos"},{"code":"3358/3","desc":"ALMAXIMO 36 x 8 COMPRIMIDOS","price":32000.0,"category":"Genericos"},{"code":"3173/0","desc":"ALMAXIMO 50 X 2 COMPRIMIDOS","price":1080.0,"category":"Genericos"},{"code":"3174/7","desc":"ALMAXIMO 50 X 2 MASTICABLES","price":1080.0,"category":"Genericos"},{"code":"3342/2","desc":"ALMAXIMO 50 X 20 COMPRIMIDOS","price":10600.0,"category":"Genericos"},{"code":"3343/9","desc":"ALMAXIMO 50 X 20 MASTICABLES","price":10800.0,"category":"Genericos"},{"code":"134/8","desc":"AMOXICILINA 250JARABE X90 ML.","price":2750.0,"category":"Genericos"},{"code":"136/2","desc":"AMOXICILINA 500 JARABE X 90 ML","price":3850.0,"category":"Genericos"},{"code":"1962/6","desc":"AMOXICILINA 500 MG X 80 COMP","price":12500.0,"category":"Genericos"},{"code":"135/5","desc":"AMOXICILINA 500 X 8 COMPRIMI.","price":1275.0,"category":"Genericos"},{"code":"1737/8","desc":"AZITROMICINA X 3 COMPRIMIDOS","price":1650.0,"category":"Genericos"},{"code":"202/0","desc":"BETAMETASONA GOTAS 15 ML","price":1000.0,"category":"Genericos"},{"code":"3258/0","desc":"BROMHEXINA JARABE AD.SIN/EST","price":1250.0,"category":"Genericos"},{"code":"3352/1","desc":"BROMHEXINA PEDIA. JARABE S/EST","price":1250.0,"category":"Genericos"},{"code":"1767/5","desc":"CARBON VEGETEAL VENT3 X 10 COM","price":1500.0,"category":"Genericos"},{"code":"142/3","desc":"CEFALEXINA 500 X 8 COMPRI.","price":1750.0,"category":"Genericos"},{"code":"1963/3","desc":"CEFALEXINA 500 MG X 80 COMP","price":17500.0,"category":"Genericos"},{"code":"1917/6","desc":"CEFALEXINA 500 X 90ML","price":4500.0,"category":"Genericos"},{"code":"1743/9","desc":"CIPROFLOXACINA X 10 comprimido","price":1500.0,"category":"Genericos"},{"code":"3129/7","desc":"DEXAMETASONA X 10 COMPRIMIDOS","price":850.0,"category":"Genericos"},{"code":"143/0","desc":"DICLOF. 100 MG X 15 CAPSULAS","price":950.0,"category":"Genericos"},{"code":"145/4","desc":"DICLOF. 75 MG. X 15 FABOP","price":750.0,"category":"Genericos"},{"code":"2054/5","desc":"DICLOF.75 X 15 X 20 BLISTERS","price":14000.0,"category":"Genericos"},{"code":"1744/6","desc":"DICLOFENAC CB 75 MG X 10 CAPS","price":4650.0,"category":"Genericos"},{"code":"147/8","desc":"DICLOFENAC GEL CON ESTUCHE KL.","price":3500.0,"category":"Genericos"},{"code":"2115/9","desc":"DICLOFENAC GEL TRB","price":3500.0,"category":"Genericos"},{"code":"149/2","desc":"DICLOFENAC RELAX X 10 SAVANT","price":550.0,"category":"Genericos"},{"code":"2018/7","desc":"DICLOFENAC RELAX X 90 SAVANT","price":4650.0,"category":"Genericos"},{"code":"1943/5","desc":"DIFENHIDRAMINA JBE x 120 ml","price":2500.0,"category":"Genericos"},{"code":"151/5","desc":"DIPIRONA JARABE X 100 ML","price":2800.0,"category":"Genericos"},{"code":"153/9","desc":"ENALAPRIL 10 MG X 10 COM. LAZA","price":1250.0,"category":"Genericos"},{"code":"156/0","desc":"ENALAPRIL 10MG X 90 COMP FABOP","price":4950.0,"category":"Genericos"},{"code":"154/6","desc":"ENALAPRIL 10MG. X 10 COM. FABO","price":550.0,"category":"Genericos"},{"code":"155/3","desc":"ENALAPRIL 20 MG X 10 COMP LAZA","price":1500.0,"category":"Genericos"},{"code":"1738/5","desc":"FLUCONAZOL X 2","price":750.0,"category":"Genericos"},{"code":"161/4","desc":"IBUPROF JAR 2% SIN/ ESTUCHE","price":990.0,"category":"Genericos"},{"code":"2010/1","desc":"IBUPROF JAR 4 % SIN ESTUCHE","price":1200.0,"category":"Genericos"},{"code":"159/1","desc":"IBUPROFENO 400 X 10 FABOGE.COM","price":520.0,"category":"Genericos"},{"code":"2116/6","desc":"IBUPROFENO 400 X 10 VENT3","price":500.0,"category":"Genericos"},{"code":"2017/0","desc":"IBUPROFENO 400 X 60 FABOG COM.","price":3100.0,"category":"Genericos"},{"code":"2016/3","desc":"IBUPROFENO 600 X 10 BIOTENK","price":550.0,"category":"Genericos"},{"code":"3117/4","desc":"IBUPROFENO 600 X 10 FABOGESIC","price":800.0,"category":"Genericos"},{"code":"160/7","desc":"IBUPROFENO 600 X 10 IBUXIM","price":620.0,"category":"Genericos"},{"code":"2068/2","desc":"IBUPROFENO 600 X 10 X 36 FABOG","price":28500.0,"category":"Genericos"},{"code":"3164/8","desc":"IBUPROFENO 600 X 90 IBUXIM","price":5400.0,"category":"Genericos"},{"code":"1992/3","desc":"KETOROLAC 20 MG X 10 MICROSUL","price":600.0,"category":"Genericos"},{"code":"3366/8","desc":"LOPERAMIDA 2 MG X 10 COMPRIMID","price":500.0,"category":"Genericos"},{"code":"1933/6","desc":"LORATADINA COMP S/E x 10","price":550.0,"category":"Genericos"},{"code":"1845/6","desc":"LORATADINA JBE ESTUCHADO X 90","price":2650.0,"category":"Genericos"},{"code":"1746/0","desc":"LOSARTAN 50MG X 10 COMPRIMIDOS","price":800.0,"category":"Genericos"},{"code":"3290/0","desc":"MEBENDAZOL COMPRIMIDOS X 6","price":2500.0,"category":"Genericos"},{"code":"3289/4","desc":"MEBENDAZOL JARABE X 30 ML","price":2500.0,"category":"Genericos"},{"code":"169/0","desc":"MIKLOGEN CREMA KLONAL","price":2750.0,"category":"Genericos"},{"code":"1882/1","desc":"NAPROXENO VANIER X 10","price":2850.0,"category":"Genericos"},{"code":"1723/1","desc":"OMEPRAZOL 20 MG CAPSULAS","price":650.0,"category":"Genericos"},{"code":"3212/2","desc":"PARACET.VENT3 PLUS TE X 1 SOBR","price":900.0,"category":"Genericos"},{"code":"3360/6","desc":"PARACET.VENT3 TE X 1 SOBRE","price":800.0,"category":"Genericos"},{"code":"3359/0","desc":"PARACET.VENT3 TE X 50 SOBRES","price":40000.0,"category":"Genericos"},{"code":"3305/7","desc":"PARACETAMOL GOTAS x 20 ml","price":1350.0,"category":"Genericos"},{"code":"3218/4","desc":"PARACETAMOL VENT3 500 X 10 COM","price":600.0,"category":"Genericos"},{"code":"174/4","desc":"PENICILINA 1.000.000 X 6 COMP.","price":2500.0,"category":"Genericos"},{"code":"3269/6","desc":"PENICILINA 1.500.000 X 6 COMP","price":3500.0,"category":"Genericos"},{"code":"176/8","desc":"PIROXICAN X 10 COMPRIMIDOS","price":420.0,"category":"Genericos"},{"code":"1748/4","desc":"SALBUTAMOL GOTAS","price":800.0,"category":"Genericos"},{"code":"182/9","desc":"VITACORTIL CREMA X 20 GRAMOS","price":6500.0,"category":"Genericos"},{"code":"185/0","desc":"AFEITA BIC AMARILLA X 24 UN","price":8500.0,"category":"Accesorios"},{"code":"186/7","desc":"AFEITA BIC CONFORT 2 X 24 UN","price":16000.0,"category":"Accesorios"},{"code":"183/6","desc":"AFEITA BIC CONFORT 3 X 12 UN","price":12000.0,"category":"Accesorios"},{"code":"188/1","desc":"AGUA OXIGENADA X 100 ML","price":500.0,"category":"Accesorios"},{"code":"3254/2","desc":"ALCANFOR X 8 PASTILLAS","price":6000.0,"category":"Accesorios"},{"code":"190/4","desc":"ALCOHOL BORICADO X 30ML","price":600.0,"category":"Accesorios"},{"code":"191/1","desc":"ALCOHOL EN GEL GESSI X50 GRS","price":1400.0,"category":"Accesorios"},{"code":"192/8","desc":"ALCOHOL PURO X500 ML","price":1650.0,"category":"Accesorios"},{"code":"3118/1","desc":"ALCOHOL PURO X 250 ML","price":1000.0,"category":"Accesorios"},{"code":"3127/3","desc":"ALGODON DONCELLA X 70 GRS","price":800.0,"category":"Accesorios"},{"code":"194/2","desc":"ALGODON LIMPIEZA DIARIA X 50 U","price":4000.0,"category":"Accesorios"},{"code":"3339/2","desc":"APOSITO CURITAS X 1 CAJA","price":1500.0,"category":"Accesorios"},{"code":"1971/8","desc":"APOSITO CURITAS X 24(PACK)","price":33600.0,"category":"Accesorios"},{"code":"197/3","desc":"APOSITOS SYRITAS 20 x 10 UNIDA","price":8850.0,"category":"Accesorios"},{"code":"1874/6","desc":"AZUFRE DISMAR X5 UNIDADES","price":1500.0,"category":"Accesorios"},{"code":"3332/3","desc":"BANDITAS DE GOMA X 250 UNID","price":3400.0,"category":"Accesorios"},{"code":"2069/9","desc":"BARBIJOS DESCARTABLES X 50 UN","price":3500.0,"category":"Accesorios"},{"code":"2031/6","desc":"BENGALAS X 4 UNIDADES","price":1200.0,"category":"Accesorios"},{"code":"1995/4","desc":"BIROMES BIC CRISTAL X 1 UNIDAD","price":500.0,"category":"Accesorios"},{"code":"203/7","desc":"BIROMES BIC CRISTAL X 50 UNIDA","price":25000.0,"category":"Accesorios"},{"code":"3317/0","desc":"BOLSAS DE RESIDUOS 45X60X10","price":750.0,"category":"Accesorios"},{"code":"3364/4","desc":"BOMBILLA MATE ALPACA X 1","price":2350.0,"category":"Accesorios"},{"code":"1961/9","desc":"BOTIQUIN 15 ELEMENTOS","price":12000.0,"category":"Accesorios"},{"code":"206/8","desc":"BROCHE P/ ROPA REFOR X 12 UND","price":880.0,"category":"Accesorios"},{"code":"213/6","desc":"CEPILLO DE ROPA MADERA","price":1600.0,"category":"Accesorios"},{"code":"2025/5","desc":"CEPILLO DE ROPA PL.ZALZANO","price":1600.0,"category":"Accesorios"},{"code":"214/3","desc":"CEPILLO DE ROPA PLANCHITA","price":1600.0,"category":"Accesorios"},{"code":"210/5","desc":"CEPILLO DENTAL COLGATE 14x12","price":15500.0,"category":"Accesorios"},{"code":"2059/0","desc":"CEPILLO DENTAL COLGATE X 1","price":1250.0,"category":"Accesorios"},{"code":"3231/3","desc":"CINTA DE EMBALAJE X 40 MTROS","price":950.0,"category":"Accesorios"},{"code":"1891/3","desc":"COCOA BEACH AUTOBR.X 130 ML","price":10500.0,"category":"Accesorios"},{"code":"1954/1","desc":"COCOA BEACH BRONC F15 X 250GR","price":13350.0,"category":"Accesorios"},{"code":"1796/5","desc":"COCOA BEACH BRONC F8 X 250 ML","price":11700.0,"category":"Accesorios"},{"code":"1953/4","desc":"COCOA BEACH GEL AFTER SUN X200","price":7200.0,"category":"Accesorios"},{"code":"1794/1","desc":"COCOA BEACH GEL AFTERSUN X 250","price":8000.0,"category":"Accesorios"},{"code":"1790/3","desc":"COCOA BEACH PROT F 45 X 200ML","price":15500.0,"category":"Accesorios"},{"code":"113/3","desc":"COCOA BEACH PROT.F30 X 200ML","price":13300.0,"category":"Accesorios"},{"code":"216/7","desc":"CREMA OXIDANTE 20 VOL","price":2500.0,"category":"Accesorios"},{"code":"217/4","desc":"CREMA OXIDANTE 30 VOL","price":2500.0,"category":"Accesorios"},{"code":"3229/0","desc":"CREMA DENTAL COLGATE X 70 GR","price":1800.0,"category":"Accesorios"},{"code":"219/8","desc":"CREMA DENTAL COLGATE X 90GRS .","price":1950.0,"category":"Accesorios"},{"code":"3155/6","desc":"CREMA DENTAL KOLINOS TRIP.X70G","price":1550.0,"category":"Accesorios"},{"code":"3228/3","desc":"CREMA DENTAL KOLYNOS X 70 GR","price":1750.0,"category":"Accesorios"},{"code":"1987/9","desc":"CUCARACHICIDA RAID AEROSOL","price":5000.0,"category":"Accesorios"},{"code":"3193/8","desc":"CUCARACHICIDA SHELTON AEROSOL","price":3500.0,"category":"Accesorios"},{"code":"1974/9","desc":"DESINFECTANTE LYSOFORM AEROSOL","price":3250.0,"category":"Accesorios"},{"code":"226/6","desc":"DESOD AMBIEN. POETT/GLADE","price":2650.0,"category":"Accesorios"},{"code":"227/3","desc":"DESODORANTE AXE AEROSOL","price":3750.0,"category":"Accesorios"},{"code":"229/7","desc":"DESODORANTE DOVE ORIGINAL AER","price":4000.0,"category":"Accesorios"},{"code":"3235/1","desc":"DESODORANTE ODORONO AEROSOL","price":3100.0,"category":"Accesorios"},{"code":"228/0","desc":"DESODORANTE ODORONO CREMA","price":2500.0,"category":"Accesorios"},{"code":"1976/3","desc":"DESODORANTE REXONA MEN AER","price":3800.0,"category":"Accesorios"},{"code":"1970/1","desc":"DESODORANTE REXONA WOMAN AERO","price":3750.0,"category":"Accesorios"},{"code":"3216/0","desc":"DETERGENTE ALA X 300 ML","price":1500.0,"category":"Accesorios"},{"code":"3273/3","desc":"DETERGENTE MAGISTRAL X 225 ML","price":1750.0,"category":"Accesorios"},{"code":"3276/4","desc":"DETERGENTE MAGISTRAL X 300ML","price":2000.0,"category":"Accesorios"},{"code":"3320/0","desc":"DETERGENTE MAGISTRAL X 500 ML","price":2880.0,"category":"Accesorios"},{"code":"1850/0","desc":"ECCOLE PEGAMENTO X 6 UNIDADES","price":33200.0,"category":"Accesorios"},{"code":"2107/4","desc":"ECCOLE X 1 UNIDAD","price":5550.0,"category":"Accesorios"},{"code":"3296/2","desc":"ENCENDEDORES CANDELA X 25 UNID","price":6250.0,"category":"Accesorios"},{"code":"3181/5","desc":"ENCENDEDORES MAXI BIC X 12","price":11360.0,"category":"Accesorios"},{"code":"2114/2","desc":"ESCARBADIENTES X 12 UNIDADES","price":5000.0,"category":"Accesorios"},{"code":"3149/5","desc":"ESCOBA ECON. PLASTICO S/CABO","price":2700.0,"category":"Accesorios"},{"code":"3354/5","desc":"ESCOBILLA BANO C DEPOSITO X 1","price":3650.0,"category":"Accesorios"},{"code":"1728/6","desc":"ESCOBILLON GACELA X 1","price":3000.0,"category":"Accesorios"},{"code":"3357/6","desc":"ESCOBILLON PUMA","price":3000.0,"category":"Accesorios"},{"code":"237/2","desc":"ESCOBILLON X 1 TIGRE PREMIUM","price":3550.0,"category":"Accesorios"},{"code":"236/5","desc":"ESCURRIDOR DOBLE GOMA RAYITA X","price":2250.0,"category":"Accesorios"},{"code":"1938/1","desc":"ESPIRAL MATIRIS X 50 X 4 UNID.","price":25000.0,"category":"Accesorios"},{"code":"3147/1","desc":"ESPIRAL RAID x 12 UNIDADES","price":2200.0,"category":"Accesorios"},{"code":"240/2","desc":"ESPIRAL RAID X 12 X 4 UNIDADES","price":8800.0,"category":"Accesorios"},{"code":"3141/9","desc":"ESPIRALES MATIRIS X 4 UNIDADES","price":500.0,"category":"Accesorios"},{"code":"1784/2","desc":"ESPONJA DE ACERO DORADA X 13G","price":450.0,"category":"Accesorios"},{"code":"1783/5","desc":"ESPONJA DE ACERO PLATEADA","price":350.0,"category":"Accesorios"},{"code":"242/6","desc":"ESPONJA FIBRA BATUQUE X 1","price":300.0,"category":"Accesorios"},{"code":"2103/6","desc":"FASTIX X 1 UNIDAD","price":5150.0,"category":"Accesorios"},{"code":"244/0","desc":"FASTIX X 6 UNIDADES(AMARILLO)","price":30800.0,"category":"Accesorios"},{"code":"2113/5","desc":"FOSFORO 3 PATITOS X10X222U","price":6000.0,"category":"Accesorios"},{"code":"246/4","desc":"FRASCO ESTERIL X 1","price":500.0,"category":"Accesorios"},{"code":"247/1","desc":"FUYI VAPE X 24 PASTILLA","price":3200.0,"category":"Accesorios"},{"code":"248/8","desc":"GASA 10 X 10 X 10CAJA","price":3000.0,"category":"Accesorios"},{"code":"1940/4","desc":"GEL INTIMO LUBRICANTE FALIC PO","price":8850.0,"category":"Accesorios"},{"code":"3271/9","desc":"GEL/FIJADOR ALGABO X 150 GS","price":2360.0,"category":"Accesorios"},{"code":"255/6","desc":"GLOBOS SURTIDOS CANDELA X 50 U","price":2700.0,"category":"Accesorios"},{"code":"258/7","desc":"GUANTES DE EXAMEN LATEX X100 U","price":5000.0,"category":"Accesorios"},{"code":"259/4","desc":"GUANTES DE LIMPIESA CH /M/G","price":2290.0,"category":"Accesorios"},{"code":"3261/0","desc":"GUANTES DE NITRILO NEGRO T M/L","price":8500.0,"category":"Accesorios"},{"code":"3335/4","desc":"HISOPO ALGABO X 125 UNID.","price":1800.0,"category":"Accesorios"},{"code":"3167/9","desc":"HISOPO DONCELLA X 100 UNIDADES","price":1800.0,"category":"Accesorios"},{"code":"1857/9","desc":"HOJAS DE AFEITAR X 10 UNIDADES","price":2000.0,"category":"Accesorios"},{"code":"3280/1","desc":"INSECTICIDA FUYI AEROSOL 360cm","price":4500.0,"category":"Accesorios"},{"code":"1980/0","desc":"INSECTICIDA RAID AEROSOL","price":5500.0,"category":"Accesorios"},{"code":"164/5","desc":"IODOPOVIDONA SOLUCION X 60 ML","price":3800.0,"category":"Accesorios"},{"code":"267/9","desc":"JABON ALA MATIX X400 GRS","price":1250.0,"category":"Accesorios"},{"code":"2049/1","desc":"JABON ALA REG LAV A MAN X 400","price":1250.0,"category":"Accesorios"},{"code":"1877/7","desc":"JABON ASTRO BLANCO X 200 GRS","price":550.0,"category":"Accesorios"},{"code":"2038/5","desc":"JABON ASTRO VERDE X 1 UNIDAD","price":400.0,"category":"Accesorios"},{"code":"3201/6","desc":"JABON ASTRO X 200 GRS X 48 UNI","price":25500.0,"category":"Accesorios"},{"code":"268/6","desc":"JABON GIGANTE BLANCO X 150 GRS","price":650.0,"category":"Accesorios"},{"code":"3179/2","desc":"JABON GUAIRA BLANCO X 150 GR","price":700.0,"category":"Accesorios"},{"code":"1915/2","desc":"JABON LUX TOCADOR X 125 GRS","price":1250.0,"category":"Accesorios"},{"code":"272/3","desc":"JABON REXONA X125 GRS","price":1150.0,"category":"Accesorios"},{"code":"274/7","desc":"JABON ZORRO POLVO X400 GR MAT.","price":1100.0,"category":"Accesorios"},{"code":"2050/7","desc":"JABON ZORRO REG LAV MANO X 400","price":1100.0,"category":"Accesorios"},{"code":"275/4","desc":"LA GOTITA CANDELA X 6 UNIDADES","price":2700.0,"category":"Accesorios"},{"code":"2106/7","desc":"LA GOTITA GEL X 1 UNIDAD","price":2550.0,"category":"Accesorios"},{"code":"256/3","desc":"LA GOTITA GEL X 6 UNIDADES","price":15000.0,"category":"Accesorios"},{"code":"2105/0","desc":"LA GOTITA X 1 UNIDAD","price":2100.0,"category":"Accesorios"},{"code":"257/0","desc":"LA GOTITA X 6 UNIDADES","price":12500.0,"category":"Accesorios"},{"code":"372/6","desc":"LANA DE ACERO BATUQUE X 10 ROL","price":750.0,"category":"Accesorios"},{"code":"3293/1","desc":"LANA DE ACERO VIRULANA X 6 ROL","price":1250.0,"category":"Accesorios"},{"code":"2023/1","desc":"MAMADERA ECONOMICA X 250 ML","price":900.0,"category":"Accesorios"},{"code":"2022/4","desc":"MAMADERA TOMASOLITO X 200ML","price":1250.0,"category":"Accesorios"},{"code":"281/5","desc":"MANTECA DE CACAO PIEL BB X1","price":1200.0,"category":"Accesorios"},{"code":"284/6","desc":"NAIPES CUATRO PALOS X 50","price":750.0,"category":"Accesorios"},{"code":"1872/2","desc":"NAIPES HACHAZO x 50 UNIDADES","price":950.0,"category":"Accesorios"},{"code":"375/7","desc":"P.21","price":605.0,"category":"Accesorios"},{"code":"286/0","desc":"PALITA P BASURAS","price":690.0,"category":"Accesorios"},{"code":"3274/0","desc":"PANAL PAMPER NUEVA PRES.P/G/XG","price":3600.0,"category":"Accesorios"},{"code":"3310/1","desc":"PANUELOS DESC.DISMAR X 6 UNID.","price":1100.0,"category":"Accesorios"},{"code":"3230/6","desc":"PANUELOS ELITE X 6 UNIDADES","price":1250.0,"category":"Accesorios"},{"code":"306/1","desc":"PILAS AA DURACEL X 2","price":2500.0,"category":"Accesorios"},{"code":"1778/1","desc":"PILAS AAA DURACEL X 2","price":2500.0,"category":"Accesorios"},{"code":"3251/1","desc":"PILAS EVEREADY AA X 4 UNIDADES","price":2600.0,"category":"Accesorios"},{"code":"3177/8","desc":"PILAS EVEREADY AA X 60 UNIDAD.","price":36000.0,"category":"Accesorios"},{"code":"3250/4","desc":"PILAS EVEREADY AAA X 2 UNIDAD.","price":1400.0,"category":"Accesorios"},{"code":"3313/2","desc":"PILAS EVEREADY AAA X 24 UNIDAD","price":15600.0,"category":"Accesorios"},{"code":"3159/4","desc":"POMADA PARA CAL.WASSI.NEGR/MAR","price":3000.0,"category":"Accesorios"},{"code":"314/6","desc":"POMADA PARA CALSADO MACAO","price":1550.0,"category":"Accesorios"},{"code":"2101/2","desc":"POXILINA X 1 UNIDAD","price":5900.0,"category":"Accesorios"},{"code":"316/0","desc":"POXILINA X 6 UNIDADES","price":35250.0,"category":"Accesorios"},{"code":"2099/6","desc":"POXIPOL x 1 UNIDAD","price":6000.0,"category":"Accesorios"},{"code":"329/0","desc":"POXIPOL X 6 UNIDADES","price":34900.0,"category":"Accesorios"},{"code":"292/1","desc":"POXIRRAN X 6 UNIDADES","price":24600.0,"category":"Accesorios"},{"code":"2100/5","desc":"POXIRRAN X 1 UNIDAD","price":4100.0,"category":"Accesorios"},{"code":"208/2","desc":"PRESERV. CAMALEON X3X12 UNID.","price":17500.0,"category":"Accesorios"},{"code":"1986/2","desc":"PRESERV. TULIPAN 16 X 3 UNIDAD","price":31650.0,"category":"Accesorios"},{"code":"2085/9","desc":"PRESERV. TULIPAN 26 UNIDADES","price":47500.0,"category":"Accesorios"},{"code":"1776/7","desc":"PRESERV. TULIPAN X 1 X 3 UNIDA","price":2000.0,"category":"Accesorios"},{"code":"333/7","desc":"PROTECTORES CALIPSOX20","price":880.0,"category":"Accesorios"},{"code":"334/4","desc":"PROTECTORES DONCELLA X 20 UNID","price":880.0,"category":"Accesorios"},{"code":"1990/9","desc":"PROTECTORES LADYSOFT X 20 UNID","price":1285.0,"category":"Accesorios"},{"code":"3336/1","desc":"PROTECTORES LINA X 20 UNID","price":1000.0,"category":"Accesorios"},{"code":"3278/8","desc":"QUITA ESMALTE CUTEX X 50 ML","price":1800.0,"category":"Accesorios"},{"code":"339/9","desc":"QUITA ESMALTE CUTEX X100 ML","price":2650.0,"category":"Accesorios"},{"code":"298/3","desc":"QUITA ESMALTE ECO ALGABO X50ML","price":1300.0,"category":"Accesorios"},{"code":"3329/3","desc":"QUITA ESMALTE ECO ALGABOX100ML","price":1800.0,"category":"Accesorios"},{"code":"3186/0","desc":"REPELENTE VAIS SPRAY X 200ML","price":3500.0,"category":"Accesorios"},{"code":"3194/5","desc":"REPELENTE AKTIOL AER.X 143 ML","price":2750.0,"category":"Accesorios"},{"code":"3238/2","desc":"REPELENTE OFF AEROSOL X 170 GS","price":5000.0,"category":"Accesorios"},{"code":"1967/1","desc":"REPELENTE OFF CREMA x 196 gr","price":5000.0,"category":"Accesorios"},{"code":"1996/1","desc":"REPELENTE OFF X 60 GRS","price":2800.0,"category":"Accesorios"},{"code":"2080/4","desc":"REPELENTE VAIS AEROSOL X 140 G","price":4000.0,"category":"Accesorios"},{"code":"3192/1","desc":"REPELENTE VAIS CREMA X 200 ML","price":3500.0,"category":"Accesorios"},{"code":"1968/8","desc":"REPELENTE VAIS KIDS SPAY","price":4500.0,"category":"Accesorios"},{"code":"2110/4","desc":"SEDAL ACONDICIONADOR x 24 SOB","price":5400.0,"category":"Accesorios"},{"code":"345/0","desc":"SEDAL SHAMPU X 24 SOBRES","price":5400.0,"category":"Accesorios"},{"code":"346/7","desc":"SOLUCION FISIOLOGICA X 100 ML","price":500.0,"category":"Accesorios"},{"code":"3150/1","desc":"SOPAPA C/CABO DESTAPA CA;ERIA","price":1900.0,"category":"Accesorios"},{"code":"319/1","desc":"SULFATEAZOL TALCO X 4 GR","price":3050.0,"category":"Accesorios"},{"code":"1864/7","desc":"TALCO EFICIENT REXONA X 100GR","price":3250.0,"category":"Accesorios"},{"code":"288/4","desc":"TALONARIOS DE PRESUPUESTO P/PE","price":2000.0,"category":"Accesorios"},{"code":"322/1","desc":"TELA ADHESIVA CH.HIP.X1,25X9M","price":500.0,"category":"Accesorios"},{"code":"2117/3","desc":"TELA ADHESIVA MED.HIP2,5X9M","price":1100.0,"category":"Accesorios"},{"code":"181/2","desc":"TEST DE EMBARAZO X 1","price":700.0,"category":"Accesorios"},{"code":"354/2","desc":"TETINA SILICONA X10","price":1200.0,"category":"Accesorios"},{"code":"355/9","desc":"TINTURA 317 KIT COLOR","price":3200.0,"category":"Accesorios"},{"code":"356/6","desc":"TINTURA IODO DEBIL X60 ML","price":6000.0,"category":"Accesorios"},{"code":"358/0","desc":"TINTURA ROJASTIOMEROSAL X60 ML","price":2500.0,"category":"Accesorios"},{"code":"1972/5","desc":"TOALL HUMEDAS CANDY BABY X 50","price":1450.0,"category":"Accesorios"},{"code":"363/4","desc":"TOALLITA CALYPSO VER.POK.ALAX8","price":800.0,"category":"Accesorios"},{"code":"361/0","desc":"TOALLITA DONCELLA C /ALAS","price":780.0,"category":"Accesorios"},{"code":"3247/4","desc":"TOALLITA DONCELLA NOCTURNA X8","price":1380.0,"category":"Accesorios"},{"code":"364/1","desc":"TOALLITA LADYSOFT ALAS","price":800.0,"category":"Accesorios"},{"code":"301/6","desc":"TOALLITA SIEMPRE LIBRE X8","price":1550.0,"category":"Accesorios"},{"code":"365/8","desc":"TRAPO DE PISO GRIS ALGODON","price":1050.0,"category":"Accesorios"},{"code":"367/2","desc":"UNIPOX X 6 UNIDADES","price":13300.0,"category":"Accesorios"},{"code":"2108/1","desc":"UNIPOX X 1 UNIDAD","price":2250.0,"category":"Accesorios"},{"code":"3202/3","desc":"VELAS CORTAS VELUZ X 50 X 4 UN","price":22500.0,"category":"Accesorios"},{"code":"1861/6","desc":"VELAS LARGAS VELUZ X 1 UNIDAD","price":700.0,"category":"Accesorios"},{"code":"3203/0","desc":"VELAS LARGAS VELUZ X 25 UNIDAD","price":17500.0,"category":"Accesorios"},{"code":"1862/3","desc":"VELAS VELUZ CORTAS X 1 UNIDAD","price":450.0,"category":"Accesorios"}];
+
+const CAT_COLORS = {
+  "Analgesicos": "#B0532C",
+  "Genericos": "#2E6B5E",
+  "Accesorios": "#3E5C76",
+};
+const CAT_COLOR_FALLBACK = ["#B0532C", "#2E6B5E", "#3E5C76", "#8A5FB0", "#B0902C"];
+
+function formatMoney(n) {
+  return "$" + Math.round(n).toLocaleString("es-AR");
+}
+
+function fmtDate(ts) {
+  const d = new Date(ts);
+  return d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" }) +
+    " " + d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function fmtTime(ts) {
+  const d = new Date(ts);
+  return d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function receiptToText(r) {
+  const lines = [];
+  lines.push("*Recibo - " + r.businessName + "*");
+  lines.push(fmtDate(r.date));
+  lines.push("");
+  r.items.forEach(it => {
+    lines.push(it.qty + "x " + it.desc + " - " + formatMoney(it.price * it.qty));
+  });
+  lines.push("");
+  lines.push("*Total: " + formatMoney(r.total) + "*");
+  return lines.join("\n");
+}
+
+function downloadReceiptImage(r) {
+  const width = 420;
+  const padding = 22;
+  const lineHeight = 24;
+  const font = "14px 'IBM Plex Mono', monospace";
+  const fontBold = "600 14px 'IBM Plex Mono', monospace";
+  const maxCharsPerLine = 30;
+
+  function wrapText(text, maxChars) {
+    const words = text.split(" ");
+    let line = "";
+    const out = [];
+    words.forEach(w => {
+      if ((line + " " + w).trim().length > maxChars) {
+        out.push(line.trim());
+        line = w;
+      } else {
+        line = (line + " " + w).trim();
+      }
+    });
+    if (line) out.push(line.trim());
+    return out;
+  }
+
+  // pre-calcular todas las lineas del ticket
+  const rows = []; // { type: 'item-desc' | 'item-qty' | 'text', text, align }
+  r.items.forEach(it => {
+    wrapText(it.desc, maxCharsPerLine).forEach((line) => {
+      rows.push({ type: "desc", text: line });
+    });
+    rows.push({ type: "qtyline", qty: it.qty, unit: formatMoney(it.price), amount: formatMoney(it.price * it.qty) });
+  });
+
+  const headerLines = 4; // titulo + cliente + fecha + espacio
+  const footerLines = 3; // total + espacio + gracias
+  const height = padding * 2
+    + headerLines * lineHeight
+    + 14 // dashed line gap
+    + rows.length * lineHeight
+    + 14
+    + footerLines * lineHeight
+    + 20;
+
+  const canvas = document.createElement("canvas");
+  const scale = 2;
+  canvas.width = width * scale;
+  canvas.height = height * scale;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(scale, scale);
+
+  ctx.fillStyle = "#FFFFFF";
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = "#1C231F";
+
+  function dashedLine(y) {
+    ctx.save();
+    ctx.strokeStyle = "#999999";
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(padding, y);
+    ctx.lineTo(width - padding, y);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  let y = padding + 16;
+  ctx.textAlign = "center";
+  ctx.font = "700 17px 'Space Grotesk', sans-serif";
+  ctx.fillText("RECIBO DE VENTA", width / 2, y);
+  y += lineHeight;
+
+  ctx.font = font;
+  ctx.fillText(r.businessName, width / 2, y);
+  y += lineHeight - 4;
+
+  ctx.font = "12px 'IBM Plex Mono', monospace";
+  ctx.fillStyle = "#555555";
+  ctx.fillText(fmtDate(r.date), width / 2, y);
+  ctx.fillStyle = "#1C231F";
+  y += 16;
+
+  dashedLine(y);
+  y += 22;
+
+  ctx.textAlign = "left";
+  rows.forEach(row => {
+    if (row.type === "desc") {
+      ctx.font = font;
+      ctx.fillText(row.text, padding, y);
+      y += lineHeight;
+    } else {
+      ctx.font = "12px 'IBM Plex Mono', monospace";
+      ctx.fillStyle = "#555555";
+      ctx.textAlign = "left";
+      ctx.fillText(row.qty + " x " + row.unit, padding + 6, y);
+      ctx.font = fontBold;
+      ctx.fillStyle = "#1C231F";
+      ctx.textAlign = "right";
+      ctx.fillText(row.amount, width - padding, y);
+      ctx.textAlign = "left";
+      y += lineHeight;
+    }
+  });
+
+  y += 4;
+  dashedLine(y);
+  y += 26;
+
+  ctx.font = "700 17px 'Space Grotesk', sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText("TOTAL", padding, y);
+  ctx.textAlign = "right";
+  ctx.fillText(formatMoney(r.total), width - padding, y);
+  y += lineHeight + 6;
+
+  dashedLine(y);
+  y += 24;
+
+  ctx.textAlign = "center";
+  ctx.font = "italic 13px 'IBM Plex Mono', monospace";
+  ctx.fillStyle = "#555555";
+  ctx.fillText("¡Gracias por su compra!", width / 2, y);
+
+  canvas.toBlob(blob => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const safeName = r.businessName.replace(/[^a-zA-Z0-9]+/g, "_").slice(0, 40);
+    a.href = url;
+    a.download = "recibo_" + safeName + "_" + r.date + ".png";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 8000);
+  }, "image/png");
+}
+
+function normalizeHeader(h) {
+  return (h || "").toString().trim().toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function parsePrice(raw) {
+  let s = (raw || "0").toString().trim().replace(/[^\d.,\-]/g, "");
+  if (!s) return 0;
+  const hasComma = s.includes(",");
+  const hasDot = s.includes(".");
+  if (hasComma && hasDot) {
+    const lastComma = s.lastIndexOf(",");
+    const lastDot = s.lastIndexOf(".");
+    if (lastComma > lastDot) {
+      s = s.replace(/\./g, "").replace(",", ".");
+    } else {
+      s = s.replace(/,/g, "");
+    }
+  } else if (hasComma) {
+    const parts = s.split(",");
+    const lastPart = parts[parts.length - 1];
+    s = lastPart.length === 3 ? s.replace(/,/g, "") : s.replace(",", ".");
+  } else if (hasDot) {
+    const parts = s.split(".");
+    const lastPart = parts[parts.length - 1];
+    if (lastPart.length === 3 && parts.length > 1) s = s.replace(/\./g, "");
+  }
+  return parseFloat(s) || 0;
+}
+
+function parseSheetRows(rows) {
+  if (!rows || !rows.length) return [];
+  const header = rows[0].map(normalizeHeader);
+  const idxCode = header.findIndex(h => h.includes("codigo") || h === "code");
+  const idxDesc = header.findIndex(h => h.includes("descripcion") || h.includes("name") || h.includes("nombre") || h.includes("producto"));
+  const idxPrice = header.findIndex(h => h.includes("precio") || h.includes("price"));
+  const idxCat = header.findIndex(h => h.includes("categoria") || h.includes("category"));
+  const idxOfertas = header.findIndex(h => h.includes("oferta"));
+  if (idxDesc === -1 || idxPrice === -1) return [];
+  const items = [];
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || row.length < 2) continue;
+    const desc = (row[idxDesc] || "").toString().trim();
+    if (!desc) continue;
+    // no columna de codigo en esta hoja: usamos la fila como identificador interno
+    const code = idxCode !== -1 ? (row[idxCode] || "").toString().trim() : "r" + i;
+    const price = parsePrice(row[idxPrice]);
+    let category;
+    if (idxCat !== -1) {
+      category = (row[idxCat] || "Catálogo").toString().trim() || "Catálogo";
+    } else if (idxOfertas !== -1) {
+      const isOferta = (row[idxOfertas] || "").toString().trim().toLowerCase() === "si";
+      category = isOferta ? "Ofertas" : "Catálogo";
+    } else {
+      category = "Catálogo";
+    }
+    items.push({ code: code || ("r" + i), desc, price, category });
+  }
+  return items;
+}
+
+// icons (minimal inline SVG, no external icon lib needed)
+const Icon = ({ children, size = 18, color = "currentColor" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    {children}
+  </svg>
+);
+const SearchIcon = (p) => <Icon {...p}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></Icon>;
+const PlusIcon = (p) => <Icon {...p}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></Icon>;
+const MinusIcon = (p) => <Icon {...p}><line x1="5" y1="12" x2="19" y2="12"/></Icon>;
+const CartIcon = (p) => <Icon {...p}><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></Icon>;
+const XIcon = (p) => <Icon {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></Icon>;
+const CheckIcon = (p) => <Icon {...p}><polyline points="20 6 9 17 4 12"/></Icon>;
+const StoreIcon = (p) => <Icon {...p}><path d="M3 9l1-6h16l1 6"/><path d="M3 9a2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0"/><path d="M4 9v10h16V9"/></Icon>;
+const ClockIcon = (p) => <Icon {...p}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></Icon>;
+const ChevronLeftIcon = (p) => <Icon {...p}><polyline points="15 18 9 12 15 6"/></Icon>;
+const TrashIcon = (p) => <Icon {...p}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></Icon>;
+const PackageIcon = (p) => <Icon {...p}><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></Icon>;
+const ShareIcon = (p) => <Icon {...p}><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></Icon>;
+const CopyIcon = (p) => <Icon {...p}><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></Icon>;
+const RefreshIcon = (p) => <Icon {...p}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></Icon>;
+
+function App() {
+  const [items, setItems] = useState(FALLBACK_ITEMS);
+  const [catalogSource, setCatalogSource] = useState(SHEET_API_URL ? "loading" : "local");
+  const [lastSync, setLastSync] = useState(null);
+  const [view, setView] = useState("catalog");
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("Todos");
+  const [cart, setCart] = useState({});
+  const [toast, setToast] = useState(null);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [businessName, setBusinessName] = useState("");
+  const [sessionReceipts, setSessionReceipts] = useState(() => {
+    try {
+      const saved = localStorage.getItem("vendedores_receipts");
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) { return []; }
+  });
+  const [selectedReceipt, setSelectedReceipt] = useState(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedReceiptIds, setSelectedReceiptIds] = useState([]);
+  const [lastReceipt, setLastReceipt] = useState(null);
+  const [copyToast, setCopyToast] = useState(false);
+
+  const syncFromSheet = useCallback(async (silent) => {
+    if (!SHEET_API_URL) return;
+    if (!silent) setCatalogSource("loading");
+    try {
+      const res = await fetch(SHEET_API_URL);
+      if (!res.ok) throw new Error("bad status");
+      const data = await res.json();
+      const parsed = parseSheetRows(data.values || []);
+      if (parsed.length > 0) {
+        setItems(parsed);
+        setCatalogSource("remote");
+        setLastSync(Date.now());
+        try { localStorage.setItem("vendedores_items_cache", JSON.stringify(parsed)); } catch (e) {}
+        try { localStorage.setItem("vendedores_items_cache_ts", String(Date.now())); } catch (e) {}
+      } else {
+        throw new Error("csv vacio o con formato inesperado");
+      }
+    } catch (e) {
+      // fetch failed: try cache, otherwise keep whatever is currently loaded
+      try {
+        const cached = localStorage.getItem("vendedores_items_cache");
+        if (cached) {
+          setItems(JSON.parse(cached));
+          setCatalogSource("cache");
+          const ts = localStorage.getItem("vendedores_items_cache_ts");
+          if (ts) setLastSync(parseInt(ts, 10));
+          return;
+        }
+      } catch (e2) {}
+      setCatalogSource(prev => prev === "remote" ? "remote" : "local");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!SHEET_API_URL) return;
+    try {
+      const cached = localStorage.getItem("vendedores_items_cache");
+      if (cached) {
+        setItems(JSON.parse(cached));
+        setCatalogSource("cache");
+        const ts = localStorage.getItem("vendedores_items_cache_ts");
+        if (ts) setLastSync(parseInt(ts, 10));
+      }
+    } catch (e) {}
+    syncFromSheet(true);
+    const interval = setInterval(() => syncFromSheet(true), 5 * 60 * 1000);
+    const onVisible = () => { if (document.visibilityState === "visible") syncFromSheet(true); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { clearInterval(interval); document.removeEventListener("visibilitychange", onVisible); };
+  }, [syncFromSheet]);
+
+  const categories = useMemo(() => ["Todos", ...Array.from(new Set(items.map(i => i.category)))], [items]);
+
+  const itemsByCode = useMemo(() => {
+    const m = {};
+    items.forEach(i => { m[i.code] = i; });
+    return m;
+  }, [items]);
+
+  useEffect(() => {
+    try { localStorage.setItem("vendedores_receipts", JSON.stringify(sessionReceipts)); } catch (e) {}
+  }, [sessionReceipts]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 1600);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  useEffect(() => {
+    if (!copyToast) return;
+    const t = setTimeout(() => setCopyToast(false), 1800);
+    return () => clearTimeout(t);
+  }, [copyToast]);
+
+  const filteredItems = useMemo(() => {
+    let list = items;
+    if (category !== "Todos") list = list.filter(i => i.category === category);
+    const q = query.trim().toLowerCase();
+    if (q) {
+      list = list.filter(i => i.desc.toLowerCase().includes(q) || i.code.toLowerCase().includes(q));
+    }
+    return list;
+  }, [items, query, category]);
+
+  const cartLines = useMemo(() => {
+    return Object.entries(cart)
+      .filter(([, qty]) => qty > 0)
+      .map(([code, qty]) => ({ ...itemsByCode[code], qty }))
+      .filter(l => l.desc)
+      .sort((a, b) => a.desc.localeCompare(b.desc));
+  }, [cart, itemsByCode]);
+
+  const cartCount = cartLines.reduce((s, l) => s + l.qty, 0);
+  const cartTotal = cartLines.reduce((s, l) => s + l.qty * l.price, 0);
+
+  const addToCart = useCallback((code) => {
+    setCart(c => ({ ...c, [code]: (c[code] || 0) + 1 }));
+    const item = itemsByCode[code];
+    setToast(item ? item.desc.split(" ").slice(0, 3).join(" ") + " agregado" : "Agregado");
+  }, [itemsByCode]);
+
+  const setQty = useCallback((code, qty) => {
+    setCart(c => {
+      const next = { ...c };
+      if (qty <= 0) delete next[code];
+      else next[code] = qty;
+      return next;
+    });
+  }, []);
+
+  const clearCart = () => setCart({});
+
+  const handleCheckout = () => {
+    if (!businessName.trim() || cartLines.length === 0) return;
+    const receipt = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+      businessName: businessName.trim(),
+      date: Date.now(),
+      items: cartLines.map(l => ({ code: l.code, desc: l.desc, price: l.price, qty: l.qty })),
+      total: cartTotal,
+    };
+    downloadReceiptImage(receipt);
+    setSessionReceipts(list => [receipt, ...list]);
+    setLastReceipt(receipt);
+    setCart({});
+    setBusinessName("");
+    setCheckoutOpen(false);
+    setView("catalog");
+    setToast("Venta registrada · recibo guardado como imagen");
+  };
+
+  const shareReceipt = async (r) => {
+    const text = receiptToText(r);
+    if (navigator.share) {
+      try { await navigator.share({ text }); return; } catch (e) {}
+    }
+    window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank");
+  };
+
+  const RECEIPTS_WHATSAPP_NUMBER = "5493757527231";
+
+  const sendSelectedReceipts = () => {
+    const toSend = sessionReceipts.filter(r => selectedReceiptIds.includes(r.id));
+    if (toSend.length === 0) return;
+    const sorted = [...toSend].sort((a, b) => a.date - b.date);
+    const text = sorted.map(receiptToText).join("\n\n— — —\n\n");
+    window.open("https://wa.me/" + RECEIPTS_WHATSAPP_NUMBER + "?text=" + encodeURIComponent(text), "_blank");
+    setSelectMode(false);
+    setSelectedReceiptIds([]);
+  };
+
+  const toggleReceiptSelected = (id) => {
+    setSelectedReceiptIds(list => list.includes(id) ? list.filter(x => x !== id) : [...list, id]);
+  };
+
+  const copyReceipt = async (r) => {
+    const text = receiptToText(r);
+    try { await navigator.clipboard.writeText(text); } catch (e) {}
+    setCopyToast(true);
+  };
+
+  const catColor = (cat) => CAT_COLORS[cat] || CAT_COLOR_FALLBACK[Math.abs(cat.split("").reduce((a,c)=>a+c.charCodeAt(0),0)) % CAT_COLOR_FALLBACK.length];
+
+  return (
+    <div style={{
+      fontFamily: "'Inter', system-ui, sans-serif", background: "#F4F2EC", minHeight: "100vh",
+      color: "#1C231F", display: "flex", flexDirection: "column", maxWidth: 480, margin: "0 auto", position: "relative",
+    }}>
+      <div style={{ background: "#173A33", color: "#F4F2EC", padding: "18px 16px 14px", position: "sticky", top: 0, zIndex: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 20, letterSpacing: -0.3 }}>Vendedores</div>
+            <div style={{ fontSize: 12, color: "#9CC2B6", fontWeight: 500, display: "flex", alignItems: "center", gap: 5 }}>
+              {items.length} artículos
+              {SHEET_API_URL && (
+                <>
+                  · {catalogSource === "loading" ? "actualizando..." : catalogSource === "remote" ? ("act. " + fmtTime(lastSync)) : catalogSource === "cache" ? "sin conexión" : "catálogo local"}
+                  <button onClick={() => syncFromSheet(false)} style={{ background: "none", border: "none", padding: 2, display: "flex" }}>
+                    <RefreshIcon size={12} color="#9CC2B6" />
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={() => setView(v => v === "receipts" ? "catalog" : "receipts")}
+            style={{ background: view === "receipts" ? "#D9A441" : "rgba(255,255,255,0.12)", color: view === "receipts" ? "#173A33" : "#F4F2EC", border: "none", borderRadius: 10, padding: "8px 12px", display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: 13 }}
+          >
+            <ClockIcon size={15} /> Recibos
+          </button>
+        </div>
+
+        {view === "catalog" && (
+          <>
+            <div style={{ marginTop: 14, background: "#F4F2EC", borderRadius: 12, display: "flex", alignItems: "center", padding: "10px 12px", gap: 8 }}>
+              <SearchIcon size={17} color="#6B7A74" />
+              <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar por código o nombre..."
+                style={{ border: "none", outline: "none", background: "transparent", flex: 1, fontSize: 14.5, color: "#1C231F" }} />
+              {query && (<button onClick={() => setQuery("")} style={{ background: "none", border: "none", padding: 2 }}><XIcon size={15} color="#6B7A74" /></button>)}
+            </div>
+            <div style={{ display: "flex", gap: 6, marginTop: 10, overflowX: "auto", paddingBottom: 2 }}>
+              {categories.map(cat => (
+                <button key={cat} onClick={() => setCategory(cat)}
+                  style={{ flexShrink: 0, border: "1px solid " + (category === cat ? "#D9A441" : "rgba(255,255,255,0.25)"), background: category === cat ? "#D9A441" : "transparent", color: category === cat ? "#173A33" : "#E4EFEA", borderRadius: 999, padding: "6px 13px", fontSize: 12.5, fontWeight: 600 }}>
+                  {cat}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {view === "catalog" && (
+        <div style={{ flex: 1, padding: "10px 12px 90px" }}>
+          {filteredItems.length === 0 && (
+            <div style={{ textAlign: "center", padding: "48px 20px", color: "#6B7A74" }}>
+              <PackageIcon size={30} color="#6B7A74" />
+              <div style={{ fontSize: 14, marginTop: 10 }}>No se encontraron artículos para "{query}"</div>
+            </div>
+          )}
+          {filteredItems.map(item => {
+            const qty = cart[item.code] || 0;
+            return (
+              <div key={item.code} style={{ background: "#FFFFFF", borderRadius: 12, padding: "11px 12px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10, border: qty > 0 ? "1.5px solid #2E6B5E" : "1.5px solid transparent", boxShadow: "0 1px 2px rgba(23,58,51,0.06)" }}>
+                <div style={{ width: 4, alignSelf: "stretch", borderRadius: 3, background: catColor(item.category), flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: "#8A9A93", fontWeight: 600, letterSpacing: 0.3 }}>{item.code}</div>
+                  <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.25, margin: "2px 0 3px" }}>{item.desc}</div>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: "#173A33" }}>{formatMoney(item.price)}</div>
+                </div>
+                {qty === 0 ? (
+                  <button onClick={() => addToCart(item.code)} style={{ background: "#173A33", color: "#F4F2EC", border: "none", borderRadius: 10, width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <PlusIcon size={18} />
+                  </button>
+                ) : (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                    <button onClick={() => setQty(item.code, qty - 1)} style={{ background: "#EDEAE1", border: "none", borderRadius: 8, width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center" }}><MinusIcon size={15} color="#173A33" /></button>
+                    <div style={{ minWidth: 20, textAlign: "center", fontWeight: 700, fontSize: 14 }}>{qty}</div>
+                    <button onClick={() => setQty(item.code, qty + 1)} style={{ background: "#173A33", border: "none", borderRadius: 8, width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center" }}><PlusIcon size={15} color="#F4F2EC" /></button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {view === "cart" && (
+        <div style={{ flex: 1, padding: "16px 14px 100px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+            <button onClick={() => setView("catalog")} style={{ background: "none", border: "none", padding: 4 }}><ChevronLeftIcon size={22} color="#173A33" /></button>
+            <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 18 }}>Carrito ({cartCount})</div>
+          </div>
+          {cartLines.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "60px 20px", color: "#6B7A74" }}>
+              <CartIcon size={30} color="#6B7A74" />
+              <div style={{ fontSize: 14, marginTop: 10 }}>El carrito está vacío</div>
+            </div>
+          ) : (
+            <>
+              {cartLines.map(l => (
+                <div key={l.code} style={{ background: "#FFFFFF", borderRadius: 12, padding: "11px 12px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10, boxShadow: "0 1px 2px rgba(23,58,51,0.06)" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 3 }}>{l.desc}</div>
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5, color: "#6B7A74" }}>{formatMoney(l.price)} c/u</div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <button onClick={() => setQty(l.code, l.qty - 1)} style={{ background: "#EDEAE1", border: "none", borderRadius: 8, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center" }}><MinusIcon size={13} color="#173A33" /></button>
+                    <div style={{ minWidth: 18, textAlign: "center", fontWeight: 700, fontSize: 13.5 }}>{l.qty}</div>
+                    <button onClick={() => setQty(l.code, l.qty + 1)} style={{ background: "#173A33", border: "none", borderRadius: 8, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center" }}><PlusIcon size={13} color="#F4F2EC" /></button>
+                  </div>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 13, minWidth: 64, textAlign: "right" }}>{formatMoney(l.price * l.qty)}</div>
+                  <button onClick={() => setQty(l.code, 0)} style={{ background: "none", border: "none", padding: 2 }}><TrashIcon size={16} color="#B0532C" /></button>
+                </div>
+              ))}
+              <button onClick={clearCart} style={{ background: "none", border: "none", color: "#B0532C", fontSize: 12.5, fontWeight: 600, padding: "4px 2px", marginTop: 2 }}>Vaciar carrito</button>
+            </>
+          )}
+        </div>
+      )}
+
+      {view === "receipts" && (
+        <div style={{ flex: 1, padding: "16px 14px 40px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+            <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 18 }}>Recibos de esta sesión</div>
+            {sessionReceipts.length > 0 && (
+              <button
+                onClick={() => { setSelectMode(m => !m); setSelectedReceiptIds([]); }}
+                style={{ background: selectMode ? "#173A33" : "rgba(23,58,51,0.08)", color: selectMode ? "#fff" : "#173A33", border: "none", borderRadius: 8, padding: "6px 11px", fontWeight: 700, fontSize: 12.5, flexShrink: 0 }}
+              >
+                {selectMode ? "Cancelar" : "Seleccionar"}
+              </button>
+            )}
+          </div>
+          <div style={{ fontSize: 12.5, color: "#6B7A74", marginBottom: 14 }}>
+            {selectMode ? "Tocá los recibos que querés enviar." : "Se guardan en este celular. Podés compartirlos por WhatsApp para no perderlos."}
+          </div>
+          {sessionReceipts.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "60px 20px", color: "#6B7A74" }}>
+              <StoreIcon size={28} color="#6B7A74" />
+              <div style={{ fontSize: 14, marginTop: 10 }}>Todavía no hiciste ninguna venta</div>
+            </div>
+          ) : (
+            sessionReceipts.map(r => {
+              const checked = selectedReceiptIds.includes(r.id);
+              return (
+                <button
+                  key={r.id}
+                  onClick={() => selectMode ? toggleReceiptSelected(r.id) : setSelectedReceipt(r)}
+                  style={{ width: "100%", textAlign: "left", background: "#FFFFFF", borderRadius: 12, padding: "12px 13px", marginBottom: 8, border: checked ? "1.5px solid #2E6B5E" : "1.5px solid transparent", display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: "0 1px 2px rgba(23,58,51,0.06)" }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", minWidth: 0, gap: 10 }}>
+                    {selectMode && (
+                      <div style={{ width: 20, height: 20, borderRadius: 6, border: checked ? "none" : "1.5px solid #C7C2B4", background: checked ? "#2E6B5E" : "transparent", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        {checked && <CheckIcon size={13} color="#fff" />}
+                      </div>
+                    )}
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 2 }}>{r.businessName}</div>
+                      <div style={{ fontSize: 12, color: "#6B7A74" }}>{fmtDate(r.date)} · {r.items.length} artículos</div>
+                    </div>
+                  </div>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 13.5, flexShrink: 0, marginLeft: 10 }}>{formatMoney(r.total)}</div>
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
+
+      {selectMode && selectedReceiptIds.length > 0 && (
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, maxWidth: 480, margin: "0 auto", background: "#F4F2EC", borderTop: "1px solid #E4E0D4", padding: "10px 14px calc(10px + env(safe-area-inset-bottom))", zIndex: 30 }}>
+          <button onClick={sendSelectedReceipts} style={{ width: "100%", background: "#25D366", color: "#fff", border: "none", borderRadius: 12, padding: "13px 20px", fontWeight: 700, fontSize: 14.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <ShareIcon size={17} /> Enviar {selectedReceiptIds.length} recibo{selectedReceiptIds.length > 1 ? "s" : ""} por WhatsApp
+          </button>
+        </div>
+      )}
+
+      {view === "done" && lastReceipt && (
+        <div style={{ flex: 1, padding: "40px 20px", display: "flex", flexDirection: "column", alignItems: "center" }}>
+          <div style={{ width: 56, height: 56, borderRadius: 999, background: "#2E6B5E", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><CheckIcon size={28} color="#fff" /></div>
+          <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 19, marginBottom: 4 }}>Venta registrada</div>
+          <div style={{ fontSize: 13.5, color: "#6B7A74", marginBottom: 20, textAlign: "center" }}>{lastReceipt.businessName} · {fmtDate(lastReceipt.date)}</div>
+          <div style={{ background: "#FFFFFF", borderRadius: 14, padding: "14px 16px", width: "100%", boxShadow: "0 1px 2px rgba(23,58,51,0.06)", marginBottom: 18 }}>
+            {lastReceipt.items.map(it => (
+              <div key={it.code} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "5px 0", borderBottom: "1px solid #F0EEE6" }}>
+                <span style={{ flex: 1 }}>{it.qty}× {it.desc}</span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, marginLeft: 8 }}>{formatMoney(it.price * it.qty)}</span>
+              </div>
+            ))}
+            <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 10, fontWeight: 700, fontSize: 15 }}>
+              <span>Total</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{formatMoney(lastReceipt.total)}</span>
+            </div>
+          </div>
+          <button onClick={() => shareReceipt(lastReceipt)} style={{ background: "#25D366", color: "#fff", border: "none", borderRadius: 12, padding: "13px 24px", fontWeight: 700, fontSize: 14.5, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 10 }}>
+            <ShareIcon size={17} /> Compartir por WhatsApp
+          </button>
+          <button onClick={() => copyReceipt(lastReceipt)} style={{ background: "#FFFFFF", color: "#173A33", border: "1.5px solid #D8D4C8", borderRadius: 12, padding: "12px 24px", fontWeight: 700, fontSize: 14, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 10 }}>
+            <CopyIcon size={16} /> Copiar recibo
+          </button>
+          <button onClick={() => setView("catalog")} style={{ background: "none", color: "#6B7A74", border: "none", padding: "10px 24px", fontWeight: 600, fontSize: 13.5, width: "100%" }}>Nueva venta</button>
+        </div>
+      )}
+
+      {selectedReceipt && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(23,58,51,0.5)", zIndex: 40, display: "flex", alignItems: "flex-end", maxWidth: 480, margin: "0 auto" }} onClick={() => setSelectedReceipt(null)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#F4F2EC", borderRadius: "18px 18px 0 0", width: "100%", maxHeight: "80vh", overflowY: "auto", padding: "18px 18px 28px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+              <div>
+                <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 17 }}>{selectedReceipt.businessName}</div>
+                <div style={{ fontSize: 12.5, color: "#6B7A74" }}>{fmtDate(selectedReceipt.date)}</div>
+              </div>
+              <button onClick={() => setSelectedReceipt(null)} style={{ background: "none", border: "none", padding: 4 }}><XIcon size={20} color="#6B7A74" /></button>
+            </div>
+            <div style={{ background: "#FFFFFF", borderRadius: 12, padding: "10px 14px", marginBottom: 14 }}>
+              {selectedReceipt.items.map(it => (
+                <div key={it.code} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "6px 0", borderBottom: "1px solid #F0EEE6" }}>
+                  <span style={{ flex: 1 }}>{it.qty}× {it.desc}</span>
+                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, marginLeft: 8 }}>{formatMoney(it.price * it.qty)}</span>
+                </div>
+              ))}
+              <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 10, fontWeight: 700, fontSize: 15 }}>
+                <span>Total</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{formatMoney(selectedReceipt.total)}</span>
+              </div>
+            </div>
+            <button onClick={() => shareReceipt(selectedReceipt)} style={{ background: "#25D366", color: "#fff", border: "none", borderRadius: 12, padding: "12px 20px", fontWeight: 700, fontSize: 14, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              <ShareIcon size={16} /> Compartir por WhatsApp
+            </button>
+          </div>
+        </div>
+      )}
+
+      {checkoutOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(23,58,51,0.5)", zIndex: 40, display: "flex", alignItems: "flex-end", maxWidth: 480, margin: "0 auto" }} onClick={() => setCheckoutOpen(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#F4F2EC", borderRadius: "18px 18px 0 0", width: "100%", padding: "20px 18px 26px" }}>
+            <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 17, marginBottom: 4 }}>Finalizar venta</div>
+            <div style={{ fontSize: 12.5, color: "#6B7A74", marginBottom: 16 }}>{cartCount} artículos · {formatMoney(cartTotal)}</div>
+            <label style={{ fontSize: 12.5, fontWeight: 600, color: "#173A33", marginBottom: 6, display: "block" }}>Nombre del negocio / despensa</label>
+            <input autoFocus value={businessName} onChange={e => setBusinessName(e.target.value)} placeholder="Ej: Despensa Doña Rosa"
+              style={{ width: "100%", border: "1.5px solid #D8D4C8", borderRadius: 10, padding: "12px 13px", fontSize: 14.5, outline: "none", background: "#FFFFFF", marginBottom: 16 }} />
+            <button disabled={!businessName.trim()} onClick={handleCheckout}
+              style={{ width: "100%", background: businessName.trim() ? "#173A33" : "#C7C2B4", color: "#F4F2EC", border: "none", borderRadius: 12, padding: "14px", fontWeight: 700, fontSize: 15 }}>
+              Registrar venta
+            </button>
+          </div>
+        </div>
+      )}
+
+      {toast && (<div style={{ position: "fixed", bottom: cartCount > 0 && view === "catalog" ? 96 : 20, left: "50%", transform: "translateX(-50%)", background: "#173A33", color: "#fff", padding: "9px 16px", borderRadius: 999, fontSize: 12.5, fontWeight: 600, zIndex: 50, maxWidth: "80%", textAlign: "center", boxShadow: "0 4px 12px rgba(0,0,0,0.2)" }}>{toast}</div>)}
+      {copyToast && (<div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "#173A33", color: "#fff", padding: "9px 16px", borderRadius: 999, fontSize: 12.5, fontWeight: 600, zIndex: 50, maxWidth: "80%", textAlign: "center", boxShadow: "0 4px 12px rgba(0,0,0,0.2)" }}>Recibo copiado</div>)}
+
+      {cartCount > 0 && (view === "catalog" || view === "cart") && (
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, maxWidth: 480, margin: "0 auto", padding: "10px 14px calc(10px + env(safe-area-inset-bottom))", background: "#F4F2EC", borderTop: "1px solid #E4E0D3", zIndex: 30 }}>
+          {view === "catalog" ? (
+            <button onClick={() => setView("cart")} style={{ width: "100%", background: "#173A33", color: "#F4F2EC", border: "none", borderRadius: 12, padding: "13px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", fontWeight: 700 }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14 }}><CartIcon size={17} /> Ver carrito ({cartCount})</span>
+              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 14.5 }}>{formatMoney(cartTotal)}</span>
+            </button>
+          ) : (
+            <button onClick={() => setCheckoutOpen(true)} style={{ width: "100%", background: "#D9A441", color: "#173A33", border: "none", borderRadius: 12, padding: "13px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", fontWeight: 700 }}>
+              <span style={{ fontSize: 14 }}>Finalizar compra</span>
+              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 14.5 }}>{formatMoney(cartTotal)}</span>
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("./sw.js").catch(() => {});
+    });
+  }
+</script>
+</body>
+</html>
