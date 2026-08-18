@@ -315,7 +315,14 @@ function App() {
   const [toast, setToast] = useState(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [businessName, setBusinessName] = useState("");
-  const [sessionReceipts, setSessionReceipts] = useState([]);
+  const [sessionReceipts, setSessionReceipts] = useState(() => {
+    try {
+      const saved = localStorage.getItem("vendedores_receipts");
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
   const [selectedReceiptIds, setSelectedReceiptIds] = useState([]);
   const [selectedReceipt, setSelectedReceipt] = useState(null);
   const [lastReceipt, setLastReceipt] = useState(null);
@@ -394,6 +401,12 @@ function App() {
 
   useEffect(() => {
     setSelectedReceiptIds(prev => prev.filter(id => sessionReceipts.some(r => r.id === id)));
+  }, [sessionReceipts]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("vendedores_receipts", JSON.stringify(sessionReceipts));
+    } catch (e) {}
   }, [sessionReceipts]);
 
   const filteredItems = useMemo(() => {
@@ -653,7 +666,7 @@ function App() {
           </div>
 
           <div style={{ fontSize: 12.5, color: "#6B7A74", marginBottom: 14 }}>
-            Seleccioná uno o varios recibos para enviarlos por WhatsApp o eliminarlos.
+            Los recibos quedan guardados en este celular, incluso si actualizás o usás la app sin señal. Seleccioná uno o varios para enviarlos por WhatsApp o eliminarlos.
           </div>
 
           {sessionReceipts.length === 0 ? (
