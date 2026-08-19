@@ -34,18 +34,42 @@
 const { useState, useMemo, useCallback, useEffect } = React;
 
 // ---------------------------------------------------------------------
-// CONFIGURACION: datos de la Google Sheet (API oficial de Google, con
-// clave de API). Mientras API_KEY quede vacio, la app usa el catalogo
-// incrustado de mas abajo como respaldo.
+// CONFIGURACION: datos de la Google Sheet, leidos como CSV publico (misma
+// hoja y mismo metodo que usa gpdistribuciones.vercel.app). No requiere
+// clave de API ni que el archivo sea un Google Sheets nativo: alcanza con
+// que el archivo este compartido como "Cualquiera con el enlace - Lector".
 // Formato esperado de la hoja: columnas Producto, Precio, Ofertas
 // (tambien acepta code/category/name/price o Codigo/Descripcion/Precio/Categoria)
 // ---------------------------------------------------------------------
 const SHEET_ID = "1Eiz9HNsQT78lrJeqjrRrp4E9JOZSBQgh";
-const SHEET_TAB = "Sheet1";
-const API_KEY = "AIzaSyDK0ypq5wYz7M2umbeLDMhch7qNTJ2dVdI";
-const SHEET_API_URL = API_KEY
-  ? "https://sheets.googleapis.com/v4/spreadsheets/" + SHEET_ID + "/values/" + encodeURIComponent(SHEET_TAB) + "?key=" + API_KEY
-  : "";
+const SHEET_GID = "0";
+const SHEET_URLS = [
+  "https://docs.google.com/spreadsheets/d/" + SHEET_ID + "/gviz/tq?tqx=out:csv&gid=" + SHEET_GID + "&_=",
+  "https://docs.google.com/spreadsheets/d/" + SHEET_ID + "/export?format=csv&gid=" + SHEET_GID + "&_=",
+];
+const SHEET_API_URL = SHEET_URLS[0];
+
+function parseCSV(text) {
+  const rows = [];
+  let row = [], field = "", inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else field += c;
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ",") { row.push(field); field = ""; }
+      else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+      else if (c === "\r") { /* skip */ }
+      else field += c;
+    }
+  }
+  if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+  return rows;
+}
 
 const FALLBACK_ITEMS = [];
 
@@ -329,40 +353,44 @@ function App() {
   const [copyToast, setCopyToast] = useState(false);
 
   const syncFromSheet = useCallback(async (silent) => {
-    if (!SHEET_API_URL) return;
+    if (!SHEET_URLS.length) return;
     if (!silent) setCatalogSource("loading");
-    try {
-      const res = await fetch(SHEET_API_URL);
-      if (!res.ok) throw new Error("bad status");
-      const data = await res.json();
-      const parsed = parseSheetRows(data.values || []);
-      if (parsed.length > 0) {
-        setItems(parsed);
-        setCatalogSource("remote");
-        setLastSync(Date.now());
-        try { localStorage.setItem("vendedores_items_cache", JSON.stringify(parsed)); } catch (e) {}
-        try { localStorage.setItem("vendedores_items_cache_ts", String(Date.now())); } catch (e) {}
-      } else {
-        throw new Error("csv vacio o con formato inesperado");
-      }
-    } catch (e) {
-      // fetch failed: try cache, otherwise keep whatever is currently loaded
+    let lastErr = null;
+    for (const base of SHEET_URLS) {
       try {
-        const cached = localStorage.getItem("vendedores_items_cache");
-        if (cached) {
-          setItems(JSON.parse(cached));
-          setCatalogSource("cache");
-          const ts = localStorage.getItem("vendedores_items_cache_ts");
-          if (ts) setLastSync(parseInt(ts, 10));
+        const res = await fetch(base + Date.now(), { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const text = await res.text();
+        const parsed = parseSheetRows(parseCSV(text));
+        if (parsed.length > 0) {
+          setItems(parsed);
+          setCatalogSource("remote");
+          setLastSync(Date.now());
+          try { localStorage.setItem("vendedores_items_cache", JSON.stringify(parsed)); } catch (e) {}
+          try { localStorage.setItem("vendedores_items_cache_ts", String(Date.now())); } catch (e) {}
           return;
         }
-      } catch (e2) {}
-      setCatalogSource(prev => prev === "remote" ? "remote" : "local");
+        throw new Error("csv vacio o con formato inesperado");
+      } catch (e) {
+        lastErr = e;
+      }
     }
+    // ambas URLs fallaron: probar cache, si no, mantener lo que haya cargado
+    try {
+      const cached = localStorage.getItem("vendedores_items_cache");
+      if (cached) {
+        setItems(JSON.parse(cached));
+        setCatalogSource("cache");
+        const ts = localStorage.getItem("vendedores_items_cache_ts");
+        if (ts) setLastSync(parseInt(ts, 10));
+        return;
+      }
+    } catch (e2) {}
+    setCatalogSource(prev => prev === "remote" ? "remote" : "local");
   }, []);
 
   useEffect(() => {
-    if (!SHEET_API_URL) return;
+    if (!SHEET_URLS.length) return;
     try {
       const cached = localStorage.getItem("vendedores_items_cache");
       if (cached) {
