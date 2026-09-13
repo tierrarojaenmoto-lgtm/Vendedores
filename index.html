@@ -469,36 +469,68 @@ function parsePrice(raw) {
 
 function parseSheetRows(rows) {
   if (!rows || !rows.length) return [];
+
   const header = rows[0].map(normalizeHeader);
   const idxCode = header.findIndex(h => h.includes("codigo") || h === "code");
-  const idxDesc = header.findIndex(h => h.includes("descripcion") || h.includes("name") || h.includes("nombre") || h.includes("producto"));
+  const idxDesc = header.findIndex(h =>
+    h.includes("descripcion") ||
+    h.includes("name") ||
+    h.includes("nombre") ||
+    h.includes("producto")
+  );
   const idxPrice = header.findIndex(h => h.includes("precio") || h.includes("price"));
-  const idxCat = header.findIndex(h => h.includes("categoria") || h.includes("category"));
   const idxOfertas = header.findIndex(h => h.includes("oferta"));
+
+  // IMPORTANTE:
+  // Google Sheets usa índice 0 para la columna A.
+  // Por lo tanto, la columna E corresponde al índice 4.
+  const CATEGORY_COLUMN_INDEX = 4;
+
   if (idxDesc === -1 || idxPrice === -1) return [];
+
   const items = [];
+  let currentCategory = "";
+
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
-    if (!row || row.length < 2) continue;
-    const desc = (row[idxDesc] || "").toString().trim();
-    if (!desc) continue;
-    // no columna de codigo en esta hoja: usamos la fila como identificador interno
-    const code = idxCode !== -1 ? (row[idxCode] || "").toString().trim() : "r" + i;
-    const price = parsePrice(row[idxPrice]);
-    let category;
-    if (idxCat !== -1) {
-      category = (row[idxCat] || "Catálogo").toString().trim() || "Catálogo";
-    } else if (idxOfertas !== -1) {
-      const isOferta = (row[idxOfertas] || "").toString().trim().toLowerCase() === "si";
-      category = isOferta ? "Ofertas" : "Catálogo";
-    } else {
-      category = "Catálogo";
+    if (!row) continue;
+
+    // La columna E funciona como separador de categorías.
+    // Cuando aparece un texto en E, esa categoría se mantiene
+    // para los productos siguientes hasta que aparezca otra.
+    const categoryCell = (row[CATEGORY_COLUMN_INDEX] ?? "").toString().trim();
+    if (categoryCell) {
+      currentCategory = categoryCell;
     }
-    items.push({ code: code || ("r" + i), desc, price, category });
+
+    const desc = (row[idxDesc] ?? "").toString().trim();
+    if (!desc) continue;
+
+    const code =
+      idxCode !== -1
+        ? (row[idxCode] ?? "").toString().trim()
+        : "r" + i;
+
+    const price = parsePrice(row[idxPrice]);
+
+    const ofertaTexto =
+      idxOfertas !== -1
+        ? (row[idxOfertas] ?? "").toString().trim().toLowerCase()
+        : "";
+
+    const isOffer = ["si", "sí", "yes", "true", "1", "x"].includes(ofertaTexto);
+
+    items.push({
+      code: code || ("r" + i),
+      desc,
+      price,
+      category: currentCategory || "Sin categoría",
+      offer: isOffer
+    });
   }
+
   return items;
 }
-
 // icons (minimal inline SVG, no external icon lib needed)
 const Icon = ({ children, size = 18, color = "currentColor" }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -530,6 +562,7 @@ function App() {
   const [view, setView] = useState("catalog");
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("Todos");
+
   const [cart, setCart] = useState({});
   const [toast, setToast] = useState(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
@@ -624,7 +657,17 @@ function App() {
 
   const allItems = useMemo(() => [...items, ...localItems], [items, localItems]);
 
-  const categories = useMemo(() => ["Todos", ...Array.from(new Set(allItems.map(i => i.category)))], [allItems]);
+  // Botones de acceso rápido. La categoría de cada producto se toma de la
+  // columna E y "Ofertas" se toma de la columna Ofertas.
+  const categoryButtons = ["Todos", "Ofertas", "Analgésicos", "Accesorios", "Genéricos"];
+
+  const normalizeCategoryForFilter = (value) =>
+    (value || "")
+      .toString()
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
 
   const itemsByCode = useMemo(() => {
     const m = {};
@@ -898,10 +941,20 @@ function App() {
 
   const filteredItems = useMemo(() => {
     let list = allItems;
-    if (category !== "Todos") list = list.filter(i => i.category === category);
+
+    if (category === "Ofertas") {
+      list = list.filter(i => i.offer === true);
+    } else if (category !== "Todos") {
+      const wanted = normalizeCategoryForFilter(category);
+      list = list.filter(i => normalizeCategoryForFilter(i.category) === wanted);
+    }
+
     const q = query.trim().toLowerCase();
     if (q) {
-      list = list.filter(i => i.desc.toLowerCase().includes(q) || i.code.toLowerCase().includes(q));
+      list = list.filter(i =>
+        i.desc.toLowerCase().includes(q) ||
+        i.code.toLowerCase().includes(q)
+      );
     }
     return list;
   }, [allItems, query, category]);
@@ -1181,13 +1234,50 @@ function App() {
                 <PlusIcon size={20} />
               </button>
             </div>
-            <div style={{ display: "flex", gap: 6, marginTop: 10, overflowX: "auto", paddingBottom: 2 }}>
-              {categories.map(cat => (
-                <button key={cat} onClick={() => setCategory(cat)}
-                  style={{ flexShrink: 0, border: "1px solid " + (category === cat ? "#D9A441" : "rgba(255,255,255,0.25)"), background: category === cat ? "#D9A441" : "transparent", color: category === cat ? "#173A33" : "#E4EFEA", borderRadius: 999, padding: "6px 13px", fontSize: 12.5, fontWeight: 600 }}>
-                  {cat}
-                </button>
-              ))}
+            <div style={{
+              marginTop: 10,
+              display: "flex",
+              gap: 5,
+              width: "100%",
+              alignItems: "stretch"
+            }}>
+              {categoryButtons.map(cat => {
+                const active = category === cat;
+                const isOffers = cat === "Ofertas";
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => setCategory(cat)}
+                    style={{
+                      flex: "1 1 0",
+                      minWidth: 0,
+                      padding: "9px 3px",
+                      borderRadius: 10,
+                      border: active
+                        ? "1.5px solid #D9A441"
+                        : "1px solid rgba(255,255,255,0.22)",
+                      background: active
+                        ? "#D9A441"
+                        : "rgba(255,255,255,0.12)",
+                      color: active ? "#173A33" : "#F4F2EC",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 3,
+                      fontSize: 10.5,
+                      fontWeight: active ? 800 : 700,
+                      lineHeight: 1.05,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis"
+                    }}
+                    title={cat}
+                  >
+                    {isOffers ? <PercentIcon size={13} /> : cat === "Todos" ? <PackageIcon size={13} /> : <TagIcon size={13} />}
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{cat}</span>
+                  </button>
+                );
+              })}
             </div>
           </>
         )}
