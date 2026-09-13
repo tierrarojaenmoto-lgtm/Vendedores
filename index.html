@@ -106,12 +106,14 @@ function receiptToText(r) {
   lines.push(fmtDate(r.date));
   lines.push("");
   r.items.forEach(it => {
-    lines.push(it.qty + "x " + it.desc + " - " + formatMoney(it.price * it.qty));
+    const lineTotal = it.lineTotal != null ? it.lineTotal : it.price * it.qty;
+    const discountTag = it.discountPercent > 0 ? " (-" + it.discountPercent + "%)" : "";
+    lines.push(it.qty + "x " + it.desc + discountTag + " - " + formatMoney(lineTotal));
   });
   lines.push("");
-  if (r.discountPercent > 0) {
+  if (r.discountAmount > 0) {
     lines.push("Subtotal: " + formatMoney(r.subtotal));
-    lines.push("Descuento (" + r.discountPercent + "%): -" + formatMoney(r.discountAmount));
+    lines.push("Descuento total: -" + formatMoney(r.discountAmount));
   }
   lines.push("*Total: " + formatMoney(r.total) + "*");
   return lines.join("\n");
@@ -126,8 +128,9 @@ function consolidateReceipts(receipts) {
       if (!totalsByCode[it.code]) {
         totalsByCode[it.code] = { desc: it.desc, qty: 0, subtotal: 0 };
       }
+      const lineTotal = it.lineTotal != null ? it.lineTotal : it.price * it.qty;
       totalsByCode[it.code].qty += it.qty;
-      totalsByCode[it.code].subtotal += it.qty * it.price;
+      totalsByCode[it.code].subtotal += lineTotal;
     });
   });
   const lines = Object.values(totalsByCode).sort((a, b) => a.desc.localeCompare(b.desc));
@@ -233,14 +236,16 @@ function downloadReceiptImage(r) {
   // pre-calcular todas las lineas del ticket
   const rows = []; // { type: 'item-desc' | 'item-qty' | 'text', text, align }
   r.items.forEach(it => {
-    wrapText(it.desc, maxCharsPerLine).forEach((line) => {
+    const discountTag = it.discountPercent > 0 ? " (-" + it.discountPercent + "%)" : "";
+    wrapText(it.desc + discountTag, maxCharsPerLine).forEach((line) => {
       rows.push({ type: "desc", text: line });
     });
-    rows.push({ type: "qtyline", qty: it.qty, unit: formatMoney(it.price), amount: formatMoney(it.price * it.qty) });
+    const lineTotal = it.lineTotal != null ? it.lineTotal : it.price * it.qty;
+    rows.push({ type: "qtyline", qty: it.qty, unit: formatMoney(it.price), amount: formatMoney(lineTotal) });
   });
 
   const headerLines = 4; // titulo + cliente + fecha + espacio
-  const hasDiscount = r.discountPercent > 0;
+  const hasDiscount = r.discountAmount > 0;
   const footerLines = hasDiscount ? 5 : 3; // subtotal + descuento + total + espacio + gracias
   const height = padding * 2
     + headerLines * lineHeight
@@ -324,7 +329,7 @@ function downloadReceiptImage(r) {
     ctx.fillText(formatMoney(r.subtotal), width - padding, y);
     y += 18;
     ctx.textAlign = "left";
-    ctx.fillText("Descuento (" + r.discountPercent + "%)", padding, y);
+    ctx.fillText("Descuento total", padding, y);
     ctx.textAlign = "right";
     ctx.fillText("-" + formatMoney(r.discountAmount), width - padding, y);
     ctx.fillStyle = "#1C231F";
@@ -481,7 +486,7 @@ function App() {
   const [newProductName, setNewProductName] = useState("");
   const [newProductPrice, setNewProductPrice] = useState("");
   const [newProductCategory, setNewProductCategory] = useState("Mis productos");
-  const [discountPercent, setDiscountPercent] = useState(0);
+  const [itemDiscounts, setItemDiscounts] = useState({});
   const backupFileInputRef = React.useRef(null);
 
   const syncFromSheet = useCallback(async (silent) => {
@@ -679,15 +684,21 @@ function App() {
   const cartLines = useMemo(() => {
     return Object.entries(cart)
       .filter(([, qty]) => qty > 0)
-      .map(([code, qty]) => ({ ...itemsByCode[code], qty }))
+      .map(([code, qty]) => {
+        const base = itemsByCode[code];
+        const discountPercent = Math.min(100, Math.max(0, Number(itemDiscounts[code]) || 0));
+        const lineSubtotal = base ? base.price * qty : 0;
+        const lineDiscountAmount = lineSubtotal * (discountPercent / 100);
+        const lineTotal = lineSubtotal - lineDiscountAmount;
+        return { ...base, qty, discountPercent, lineSubtotal, lineDiscountAmount, lineTotal };
+      })
       .filter(l => l.desc)
       .sort((a, b) => a.desc.localeCompare(b.desc));
-  }, [cart, itemsByCode]);
+  }, [cart, itemsByCode, itemDiscounts]);
 
   const cartCount = cartLines.reduce((s, l) => s + l.qty, 0);
-  const cartTotal = cartLines.reduce((s, l) => s + l.qty * l.price, 0);
-  const safeDiscountPercent = Math.min(100, Math.max(0, Number(discountPercent) || 0));
-  const discountAmount = cartTotal * (safeDiscountPercent / 100);
+  const cartTotal = cartLines.reduce((s, l) => s + l.lineSubtotal, 0);
+  const discountAmount = cartLines.reduce((s, l) => s + l.lineDiscountAmount, 0);
   const finalTotal = cartTotal - discountAmount;
   const totalAllSales = useMemo(() => sessionReceipts.reduce((s, r) => s + r.total, 0), [sessionReceipts]);
 
@@ -704,6 +715,14 @@ function App() {
       else next[code] = qty;
       return next;
     });
+    if (qty <= 0) {
+      setItemDiscounts(d => {
+        if (!(code in d)) return d;
+        const next = { ...d };
+        delete next[code];
+        return next;
+      });
+    }
   }, []);
 
   const promptQty = useCallback((code, currentQty) => {
@@ -713,7 +732,18 @@ function App() {
     if (!isNaN(n)) setQty(code, n);
   }, [setQty]);
 
-  const clearCart = () => { setCart({}); setDiscountPercent(0); };
+  const setItemDiscount = useCallback((code, value) => {
+    const n = value === "" ? 0 : Math.min(100, Math.max(0, Number(value) || 0));
+    setItemDiscounts(d => ({ ...d, [code]: n }));
+  }, []);
+
+  const promptItemDiscount = useCallback((code, currentDiscount) => {
+    const entered = window.prompt("Descuento para este artículo (%):", String(currentDiscount || 0));
+    if (entered === null) return;
+    setItemDiscount(code, entered.replace(/[^\d.]/g, ""));
+  }, [setItemDiscount]);
+
+  const clearCart = () => { setCart({}); setItemDiscounts({}); };
 
   const handleCheckout = () => {
     if (!businessName.trim() || cartLines.length === 0) return;
@@ -721,9 +751,8 @@ function App() {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
       businessName: businessName.trim(),
       date: Date.now(),
-      items: cartLines.map(l => ({ code: l.code, desc: l.desc, price: l.price, qty: l.qty })),
+      items: cartLines.map(l => ({ code: l.code, desc: l.desc, price: l.price, qty: l.qty, discountPercent: l.discountPercent, lineTotal: l.lineTotal })),
       subtotal: cartTotal,
-      discountPercent: safeDiscountPercent,
       discountAmount: discountAmount,
       total: finalTotal,
     };
@@ -732,7 +761,7 @@ function App() {
     setSelectedReceiptIds([]);
     setLastReceipt(receipt);
     setCart({});
-    setDiscountPercent(0);
+    setItemDiscounts({});
     setBusinessName("");
     setCheckoutOpen(false);
     setView("catalog");
@@ -966,45 +995,51 @@ function App() {
           ) : (
             <>
               {cartLines.map(l => (
-                <div key={l.code} style={{ background: "#FFFFFF", borderRadius: 12, padding: "11px 12px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10, boxShadow: "0 1px 2px rgba(23,58,51,0.06)" }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 3 }}>{l.desc}</div>
-                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5, color: "#6B7A74" }}>{formatMoney(l.price)} c/u</div>
+                <div key={l.code} style={{ background: "#FFFFFF", borderRadius: 12, padding: "11px 12px", marginBottom: 8, boxShadow: "0 1px 2px rgba(23,58,51,0.06)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 3 }}>{l.desc}</div>
+                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5, color: "#6B7A74" }}>{formatMoney(l.price)} c/u</div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <button onClick={() => setQty(l.code, l.qty - 1)} style={{ background: "#EDEAE1", border: "none", borderRadius: 8, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center" }}><MinusIcon size={13} color="#173A33" /></button>
+                      <div onClick={() => promptQty(l.code, l.qty)} style={{ minWidth: 20, textAlign: "center", fontWeight: 700, fontSize: 13.5, color: "#B0532C" }}>{l.qty}</div>
+                      <button onClick={() => setQty(l.code, l.qty + 1)} style={{ background: "#173A33", border: "none", borderRadius: 8, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center" }}><PlusIcon size={13} color="#F4F2EC" /></button>
+                    </div>
+                    <div style={{ textAlign: "right", minWidth: 64 }}>
+                      {l.discountPercent > 0 && (
+                        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#B0532C", textDecoration: "line-through" }}>{formatMoney(l.lineSubtotal)}</div>
+                      )}
+                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 13 }}>{formatMoney(l.lineTotal)}</div>
+                    </div>
+                    <button onClick={() => setQty(l.code, 0)} style={{ background: "none", border: "none", padding: 2 }}><TrashIcon size={16} color="#B0532C" /></button>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <button onClick={() => setQty(l.code, l.qty - 1)} style={{ background: "#EDEAE1", border: "none", borderRadius: 8, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center" }}><MinusIcon size={13} color="#173A33" /></button>
-                    <div onClick={() => promptQty(l.code, l.qty)} style={{ minWidth: 20, textAlign: "center", fontWeight: 700, fontSize: 13.5, color: "#B0532C" }}>{l.qty}</div>
-                    <button onClick={() => setQty(l.code, l.qty + 1)} style={{ background: "#173A33", border: "none", borderRadius: 8, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center" }}><PlusIcon size={13} color="#F4F2EC" /></button>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, marginTop: 8, paddingTop: 8, borderTop: "1px solid #F0EEE6" }}>
+                    <PercentIcon size={13} color="#6B7A74" />
+                    <span style={{ fontSize: 12, color: "#6B7A74", fontWeight: 600 }}>Descuento para este artículo:</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={l.discountPercent === 0 ? "" : l.discountPercent}
+                      onChange={e => setItemDiscount(l.code, e.target.value)}
+                      placeholder="0"
+                      style={{ width: 46, border: "1.5px solid #D8D4C8", borderRadius: 8, padding: "5px 6px", fontSize: 12.5, textAlign: "right", outline: "none" }}
+                    />
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: "#6B7A74" }}>%</span>
                   </div>
-                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 13, minWidth: 64, textAlign: "right" }}>{formatMoney(l.price * l.qty)}</div>
-                  <button onClick={() => setQty(l.code, 0)} style={{ background: "none", border: "none", padding: 2 }}><TrashIcon size={16} color="#B0532C" /></button>
                 </div>
               ))}
               <button onClick={clearCart} style={{ background: "none", border: "none", color: "#B0532C", fontSize: 12.5, fontWeight: 600, padding: "4px 2px", marginTop: 2 }}>Vaciar carrito</button>
 
               <div style={{ background: "#FFFFFF", borderRadius: 12, padding: "14px", marginTop: 14, boxShadow: "0 1px 2px rgba(23,58,51,0.06)" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 600, color: "#173A33" }}><PercentIcon size={15} color="#6B7A74" /> Descuento</div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={discountPercent === 0 ? "" : discountPercent}
-                      onChange={e => setDiscountPercent(e.target.value === "" ? 0 : Math.min(100, Math.max(0, Number(e.target.value))))}
-                      placeholder="0"
-                      style={{ width: 54, border: "1.5px solid #D8D4C8", borderRadius: 8, padding: "6px 8px", fontSize: 13.5, textAlign: "right", outline: "none" }}
-                    />
-                    <span style={{ fontSize: 13.5, fontWeight: 600, color: "#6B7A74" }}>%</span>
-                  </div>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#6B7A74", marginBottom: safeDiscountPercent > 0 ? 4 : 0 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#6B7A74", marginBottom: discountAmount > 0 ? 4 : 0 }}>
                   <span>Subtotal</span>
                   <span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{formatMoney(cartTotal)}</span>
                 </div>
-                {safeDiscountPercent > 0 && (
+                {discountAmount > 0 && (
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#B0532C", marginBottom: 4 }}>
-                    <span>Descuento ({safeDiscountPercent}%)</span>
+                    <span>Descuento total</span>
                     <span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>-{formatMoney(discountAmount)}</span>
                   </div>
                 )}
@@ -1231,17 +1266,17 @@ function App() {
           <div style={{ background: "#FFFFFF", borderRadius: 14, padding: "14px 16px", width: "100%", boxShadow: "0 1px 2px rgba(23,58,51,0.06)", marginBottom: 18 }}>
             {lastReceipt.items.map(it => (
               <div key={it.code} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "5px 0", borderBottom: "1px solid #F0EEE6" }}>
-                <span style={{ flex: 1 }}>{it.qty}× {it.desc}</span>
-                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, marginLeft: 8 }}>{formatMoney(it.price * it.qty)}</span>
+                <span style={{ flex: 1 }}>{it.qty}× {it.desc}{it.discountPercent > 0 && (<span style={{ color: "#B0532C", fontWeight: 600 }}> (-{it.discountPercent}%)</span>)}</span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, marginLeft: 8 }}>{formatMoney(it.lineTotal != null ? it.lineTotal : it.price * it.qty)}</span>
               </div>
             ))}
-            {lastReceipt.discountPercent > 0 && (
+            {lastReceipt.discountAmount > 0 && (
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#6B7A74", paddingTop: 8 }}>
                   <span>Subtotal</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{formatMoney(lastReceipt.subtotal)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#B0532C" }}>
-                  <span>Descuento ({lastReceipt.discountPercent}%)</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>-{formatMoney(lastReceipt.discountAmount)}</span>
+                  <span>Descuento total</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>-{formatMoney(lastReceipt.discountAmount)}</span>
                 </div>
               </>
             )}
@@ -1272,17 +1307,17 @@ function App() {
             <div style={{ background: "#FFFFFF", borderRadius: 12, padding: "10px 14px", marginBottom: 14 }}>
               {selectedReceipt.items.map(it => (
                 <div key={it.code} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "6px 0", borderBottom: "1px solid #F0EEE6" }}>
-                  <span style={{ flex: 1 }}>{it.qty}× {it.desc}</span>
-                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, marginLeft: 8 }}>{formatMoney(it.price * it.qty)}</span>
+                  <span style={{ flex: 1 }}>{it.qty}× {it.desc}{it.discountPercent > 0 && (<span style={{ color: "#B0532C", fontWeight: 600 }}> (-{it.discountPercent}%)</span>)}</span>
+                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, marginLeft: 8 }}>{formatMoney(it.lineTotal != null ? it.lineTotal : it.price * it.qty)}</span>
                 </div>
               ))}
-              {selectedReceipt.discountPercent > 0 && (
+              {selectedReceipt.discountAmount > 0 && (
                 <>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#6B7A74", paddingTop: 8 }}>
                     <span>Subtotal</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{formatMoney(selectedReceipt.subtotal)}</span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#B0532C" }}>
-                    <span>Descuento ({selectedReceipt.discountPercent}%)</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>-{formatMoney(selectedReceipt.discountAmount)}</span>
+                    <span>Descuento total</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>-{formatMoney(selectedReceipt.discountAmount)}</span>
                   </div>
                 </>
               )}
@@ -1302,7 +1337,7 @@ function App() {
           <div onClick={e => e.stopPropagation()} style={{ background: "#F4F2EC", borderRadius: "18px 18px 0 0", width: "100%", padding: "20px 18px 26px" }}>
             <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 17, marginBottom: 4 }}>Finalizar venta</div>
             <div style={{ fontSize: 12.5, color: "#6B7A74", marginBottom: 16 }}>
-              {cartCount} artículos · {safeDiscountPercent > 0 ? (<>{formatMoney(cartTotal)} - {safeDiscountPercent}% = <b>{formatMoney(finalTotal)}</b></>) : formatMoney(finalTotal)}
+              {cartCount} artículos · {discountAmount > 0 ? (<>{formatMoney(cartTotal)} - {formatMoney(discountAmount)} desc. = <b>{formatMoney(finalTotal)}</b></>) : formatMoney(finalTotal)}
             </div>
             <label style={{ fontSize: 12.5, fontWeight: 600, color: "#173A33", marginBottom: 6, display: "block" }}>Nombre del negocio / despensa</label>
             <input autoFocus value={businessName} onChange={e => setBusinessName(e.target.value)} placeholder="Ej: Despensa Doña Rosa"
