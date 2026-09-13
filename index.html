@@ -209,160 +209,232 @@ function generateReportPDF(receipts) {
   return doc;
 }
 
-function downloadReceiptImage(r) {
-  const width = 420;
-  const padding = 22;
-  const lineHeight = 24;
-  const font = "14px 'IBM Plex Mono', monospace";
-  const fontBold = "600 14px 'IBM Plex Mono', monospace";
-  const maxCharsPerLine = 30;
+function receiptFileName(r) {
+  const safeName = (r.businessName || "cliente").replace(/[^a-zA-Z0-9]+/g, "_").slice(0, 40) || "cliente";
+  return "recibo_" + safeName + "_" + r.id + ".png";
+}
 
-  function wrapText(text, maxChars) {
-    const words = text.split(" ");
-    let line = "";
-    const out = [];
-    words.forEach(w => {
-      if ((line + " " + w).trim().length > maxChars) {
-        out.push(line.trim());
-        line = w;
+function createReceiptImageBlob(r) {
+  return new Promise(resolve => {
+    const width = 420;
+    const padding = 22;
+    const lineHeight = 24;
+    const font = "14px 'IBM Plex Mono', monospace";
+    const fontBold = "600 14px 'IBM Plex Mono', monospace";
+    const maxCharsPerLine = 30;
+
+    function wrapText(text, maxChars) {
+      const words = text.split(" ");
+      let line = "";
+      const out = [];
+      words.forEach(w => {
+        if ((line + " " + w).trim().length > maxChars) {
+          out.push(line.trim());
+          line = w;
+        } else {
+          line = (line + " " + w).trim();
+        }
+      });
+      if (line) out.push(line.trim());
+      return out;
+    }
+
+    const rows = [];
+    r.items.forEach(it => {
+      const discountTag = it.discountPercent > 0 ? " (-" + it.discountPercent + "%)" : "";
+      wrapText(it.desc + discountTag, maxCharsPerLine).forEach(line => rows.push({ type: "desc", text: line }));
+      const lineTotal = it.lineTotal != null ? it.lineTotal : it.price * it.qty;
+      rows.push({ type: "qtyline", qty: it.qty, unit: formatMoney(it.price), amount: formatMoney(lineTotal) });
+    });
+
+    const headerLines = 4;
+    const hasDiscount = r.discountAmount > 0;
+    const footerLines = hasDiscount ? 5 : 3;
+    const height = padding * 2 + headerLines * lineHeight + 14 + rows.length * lineHeight + 14 + footerLines * lineHeight + 20;
+
+    const canvas = document.createElement("canvas");
+    const scale = 2;
+    canvas.width = width * scale;
+    canvas.height = height * scale;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(scale, scale);
+
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = "#1C231F";
+
+    function dashedLine(y) {
+      ctx.save();
+      ctx.strokeStyle = "#999999";
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(padding, y);
+      ctx.lineTo(width - padding, y);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    let y = padding + 16;
+    ctx.textAlign = "center";
+    ctx.font = "700 17px 'Space Grotesk', sans-serif";
+    ctx.fillText("RECIBO DE VENTA", width / 2, y);
+    y += lineHeight;
+
+    ctx.font = font;
+    ctx.fillText(r.businessName, width / 2, y);
+    y += lineHeight - 4;
+
+    ctx.font = "12px 'IBM Plex Mono', monospace";
+    ctx.fillStyle = "#555555";
+    ctx.fillText(fmtDate(r.date), width / 2, y);
+    ctx.fillStyle = "#1C231F";
+    y += 16;
+
+    dashedLine(y);
+    y += 22;
+
+    ctx.textAlign = "left";
+    rows.forEach(row => {
+      if (row.type === "desc") {
+        ctx.font = font;
+        ctx.fillText(row.text, padding, y);
+        y += lineHeight;
       } else {
-        line = (line + " " + w).trim();
+        ctx.font = "12px 'IBM Plex Mono', monospace";
+        ctx.fillStyle = "#555555";
+        ctx.textAlign = "left";
+        ctx.fillText(row.qty + " x " + row.unit, padding + 6, y);
+        ctx.font = fontBold;
+        ctx.fillStyle = "#1C231F";
+        ctx.textAlign = "right";
+        ctx.fillText(row.amount, width - padding, y);
+        ctx.textAlign = "left";
+        y += lineHeight;
       }
     });
-    if (line) out.push(line.trim());
-    return out;
-  }
 
-  // pre-calcular todas las lineas del ticket
-  const rows = []; // { type: 'item-desc' | 'item-qty' | 'text', text, align }
-  r.items.forEach(it => {
-    const discountTag = it.discountPercent > 0 ? " (-" + it.discountPercent + "%)" : "";
-    wrapText(it.desc + discountTag, maxCharsPerLine).forEach((line) => {
-      rows.push({ type: "desc", text: line });
-    });
-    const lineTotal = it.lineTotal != null ? it.lineTotal : it.price * it.qty;
-    rows.push({ type: "qtyline", qty: it.qty, unit: formatMoney(it.price), amount: formatMoney(lineTotal) });
-  });
+    y += 4;
+    dashedLine(y);
+    y += 26;
 
-  const headerLines = 4; // titulo + cliente + fecha + espacio
-  const hasDiscount = r.discountAmount > 0;
-  const footerLines = hasDiscount ? 5 : 3; // subtotal + descuento + total + espacio + gracias
-  const height = padding * 2
-    + headerLines * lineHeight
-    + 14 // dashed line gap
-    + rows.length * lineHeight
-    + 14
-    + footerLines * lineHeight
-    + 20;
-
-  const canvas = document.createElement("canvas");
-  const scale = 2;
-  canvas.width = width * scale;
-  canvas.height = height * scale;
-  const ctx = canvas.getContext("2d");
-  ctx.scale(scale, scale);
-
-  ctx.fillStyle = "#FFFFFF";
-  ctx.fillRect(0, 0, width, height);
-  ctx.fillStyle = "#1C231F";
-
-  function dashedLine(y) {
-    ctx.save();
-    ctx.strokeStyle = "#999999";
-    ctx.setLineDash([3, 3]);
-    ctx.beginPath();
-    ctx.moveTo(padding, y);
-    ctx.lineTo(width - padding, y);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  let y = padding + 16;
-  ctx.textAlign = "center";
-  ctx.font = "700 17px 'Space Grotesk', sans-serif";
-  ctx.fillText("RECIBO DE VENTA", width / 2, y);
-  y += lineHeight;
-
-  ctx.font = font;
-  ctx.fillText(r.businessName, width / 2, y);
-  y += lineHeight - 4;
-
-  ctx.font = "12px 'IBM Plex Mono', monospace";
-  ctx.fillStyle = "#555555";
-  ctx.fillText(fmtDate(r.date), width / 2, y);
-  ctx.fillStyle = "#1C231F";
-  y += 16;
-
-  dashedLine(y);
-  y += 22;
-
-  ctx.textAlign = "left";
-  rows.forEach(row => {
-    if (row.type === "desc") {
-      ctx.font = font;
-      ctx.fillText(row.text, padding, y);
-      y += lineHeight;
-    } else {
+    if (hasDiscount) {
       ctx.font = "12px 'IBM Plex Mono', monospace";
       ctx.fillStyle = "#555555";
       ctx.textAlign = "left";
-      ctx.fillText(row.qty + " x " + row.unit, padding + 6, y);
-      ctx.font = fontBold;
-      ctx.fillStyle = "#1C231F";
+      ctx.fillText("Subtotal", padding, y);
       ctx.textAlign = "right";
-      ctx.fillText(row.amount, width - padding, y);
+      ctx.fillText(formatMoney(r.subtotal), width - padding, y);
+      y += 18;
       ctx.textAlign = "left";
-      y += lineHeight;
+      ctx.fillText("Descuento total", padding, y);
+      ctx.textAlign = "right";
+      ctx.fillText("-" + formatMoney(r.discountAmount), width - padding, y);
+      ctx.fillStyle = "#1C231F";
+      y += 22;
     }
-  });
 
-  y += 4;
-  dashedLine(y);
-  y += 26;
+    ctx.font = "700 17px 'Space Grotesk', sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText("TOTAL", padding, y);
+    ctx.textAlign = "right";
+    ctx.fillText(formatMoney(r.total), width - padding, y);
+    y += lineHeight + 6;
 
-  if (hasDiscount) {
-    ctx.font = "12px 'IBM Plex Mono', monospace";
+    dashedLine(y);
+    y += 24;
+
+    ctx.textAlign = "center";
+    ctx.font = "italic 13px 'IBM Plex Mono', monospace";
     ctx.fillStyle = "#555555";
-    ctx.textAlign = "left";
-    ctx.fillText("Subtotal", padding, y);
-    ctx.textAlign = "right";
-    ctx.fillText(formatMoney(r.subtotal), width - padding, y);
-    y += 18;
-    ctx.textAlign = "left";
-    ctx.fillText("Descuento total", padding, y);
-    ctx.textAlign = "right";
-    ctx.fillText("-" + formatMoney(r.discountAmount), width - padding, y);
-    ctx.fillStyle = "#1C231F";
-    y += 22;
+    ctx.fillText("¡Gracias por su compra!", width / 2, y);
+
+    canvas.toBlob(blob => resolve(blob), "image/png");
+  });
+}
+
+const RECEIPT_DB_NAME = "vendedores_receipts_storage";
+const RECEIPT_DB_STORE = "settings";
+const RECEIPT_DIR_KEY = "receiptDirectory";
+
+function openReceiptStorageDB() {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) return reject(new Error("IndexedDB no disponible"));
+    const req = indexedDB.open(RECEIPT_DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(RECEIPT_DB_STORE)) req.result.createObjectStore(RECEIPT_DB_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error("No se pudo abrir almacenamiento"));
+  });
+}
+
+async function storeReceiptDirectoryHandle(handle) {
+  const db = await openReceiptStorageDB();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(RECEIPT_DB_STORE, "readwrite");
+    tx.objectStore(RECEIPT_DB_STORE).put(handle, RECEIPT_DIR_KEY);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error || new Error("No se pudo guardar la carpeta"));
+  });
+  db.close();
+}
+
+async function getStoredReceiptDirectoryHandle() {
+  try {
+    const db = await openReceiptStorageDB();
+    const handle = await new Promise((resolve, reject) => {
+      const tx = db.transaction(RECEIPT_DB_STORE, "readonly");
+      const req = tx.objectStore(RECEIPT_DB_STORE).get(RECEIPT_DIR_KEY);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+    db.close();
+    return handle;
+  } catch (e) {
+    return null;
   }
+}
 
-  ctx.font = "700 17px 'Space Grotesk', sans-serif";
-  ctx.textAlign = "left";
-  ctx.fillText("TOTAL", padding, y);
-  ctx.textAlign = "right";
-  ctx.fillText(formatMoney(r.total), width - padding, y);
-  y += lineHeight + 6;
+async function verifyDirectoryPermission(handle, requestPermission) {
+  if (!handle || !handle.queryPermission) return false;
+  const options = { mode: "readwrite" };
+  if (await handle.queryPermission(options) === "granted") return true;
+  if (requestPermission && handle.requestPermission) return (await handle.requestPermission(options)) === "granted";
+  return false;
+}
 
-  dashedLine(y);
-  y += 24;
+async function saveReceiptBlobToDirectory(r, blob, requestPermission = false) {
+  const handle = await getStoredReceiptDirectoryHandle();
+  if (!handle) return false;
+  const allowed = await verifyDirectoryPermission(handle, requestPermission);
+  if (!allowed) return false;
+  const fileHandle = await handle.getFileHandle(receiptFileName(r), { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(blob);
+  await writable.close();
+  return true;
+}
 
-  ctx.textAlign = "center";
-  ctx.font = "italic 13px 'IBM Plex Mono', monospace";
-  ctx.fillStyle = "#555555";
-  ctx.fillText("¡Gracias por su compra!", width / 2, y);
+async function saveReceiptImage(r, allowDownloadFallback = true) {
+  const blob = await createReceiptImageBlob(r);
+  try {
+    if (await saveReceiptBlobToDirectory(r, blob, false)) return "folder";
+  } catch (e) {}
 
-  canvas.toBlob(blob => {
-    if (!blob) return;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    const safeName = r.businessName.replace(/[^a-zA-Z0-9]+/g, "_").slice(0, 40);
-    a.href = url;
-    a.download = "recibo_" + safeName + "_" + r.date + ".png";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 8000);
-  }, "image/png");
+  if (!allowDownloadFallback) return "none";
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = receiptFileName(r);
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 8000);
+  return "download";
+}
+
+function downloadReceiptImage(r) {
+  saveReceiptImage(r, true).catch(() => {});
 }
 
 function normalizeHeader(h) {
@@ -397,84 +469,33 @@ function parsePrice(raw) {
 
 function parseSheetRows(rows) {
   if (!rows || !rows.length) return [];
-
   const header = rows[0].map(normalizeHeader);
   const idxCode = header.findIndex(h => h.includes("codigo") || h === "code");
   const idxDesc = header.findIndex(h => h.includes("descripcion") || h.includes("name") || h.includes("nombre") || h.includes("producto"));
   const idxPrice = header.findIndex(h => h.includes("precio") || h.includes("price"));
-  const idxCatHeader = header.findIndex(h => h.includes("categoria") || h.includes("category"));
+  const idxCat = header.findIndex(h => h.includes("categoria") || h.includes("category"));
   const idxOfertas = header.findIndex(h => h.includes("oferta"));
-
-  // En esta planilla las categorías también pueden aparecer como
-  // cabeceras en la COLUMNA E (índice 4), sin una columna "Categoría"
-  // propiamente dicha. Ejemplo: una fila contiene solamente "Accesorios"
-  // en E y los productos siguientes pertenecen a esa categoría.
-  const CATEGORY_COLUMN_E = 4;
-  const knownCategories = new Set([
-    "accesorios", "analgesicos", "genericos", "catálogo", "catalogo", "ofertas"
-  ]);
-
   if (idxDesc === -1 || idxPrice === -1) return [];
-
   const items = [];
-  let currentCategory = "Catálogos";
-
-  const cleanCategory = value => {
-    const text = (value || "").toString().trim();
-    if (!text) return "";
-    const normalized = normalizeHeader(text);
-    if (normalized === "catalogo" || normalized === "catalogos") return "Catálogos";
-    if (normalized === "analgesicos") return "Analgésicos";
-    if (normalized === "genericos") return "Genéricos";
-    if (normalized === "accesorios") return "Accesorios";
-    if (normalized === "ofertas") return "Ofertas";
-    return text;
-  };
-
   for (let i = 1; i < rows.length; i++) {
-    const row = rows[i] || [];
-    if (!row.length) continue;
-
-    const eValue = CATEGORY_COLUMN_E < row.length ? (row[CATEGORY_COLUMN_E] || "").toString().trim() : "";
-    const desc = idxDesc < row.length ? (row[idxDesc] || "").toString().trim() : "";
-    const priceRaw = idxPrice < row.length ? (row[idxPrice] || "").toString().trim() : "";
-
-    // Una fila sin producto/precio, pero con texto en E, se considera
-    // cabecera de categoría. No se convierte en producto.
-    if (!desc && eValue) {
-      const possibleCategory = cleanCategory(eValue);
-      if (possibleCategory) {
-        currentCategory = possibleCategory;
-        continue;
-      }
-    }
-
+    const row = rows[i];
+    if (!row || row.length < 2) continue;
+    const desc = (row[idxDesc] || "").toString().trim();
     if (!desc) continue;
-
+    // no columna de codigo en esta hoja: usamos la fila como identificador interno
     const code = idxCode !== -1 ? (row[idxCode] || "").toString().trim() : "r" + i;
-    const price = parsePrice(priceRaw);
-
-    let category = currentCategory;
-    if (idxCatHeader !== -1) {
-      const explicit = cleanCategory(row[idxCatHeader]);
-      if (explicit) category = explicit;
+    const price = parsePrice(row[idxPrice]);
+    let category;
+    if (idxCat !== -1) {
+      category = (row[idxCat] || "Catálogo").toString().trim() || "Catálogo";
     } else if (idxOfertas !== -1) {
-      const oferta = normalizeHeader(row[idxOfertas] || "");
-      if (["si", "sí", "x", "oferta", "ofertas", "true", "1"].includes(oferta)) {
-        category = "Ofertas";
-      }
-    } else if (eValue) {
-      // Si E contiene una categoría en la misma fila del producto,
-      // también la usamos como categoría explícita.
-      const explicitE = cleanCategory(eValue);
-      if (explicitE && (knownCategories.has(normalizeHeader(eValue)) || !priceRaw)) {
-        category = explicitE;
-      }
+      const isOferta = (row[idxOfertas] || "").toString().trim().toLowerCase() === "si";
+      category = isOferta ? "Ofertas" : "Catálogo";
+    } else {
+      category = "Catálogo";
     }
-
-    items.push({ code: code || ("r" + i), desc, price, category: category || "Catálogos" });
+    items.push({ code: code || ("r" + i), desc, price, category });
   }
-
   return items;
 }
 
@@ -538,6 +559,12 @@ function App() {
   const [newProductPrice, setNewProductPrice] = useState("");
   const [newProductCategory, setNewProductCategory] = useState("Mis productos");
   const [itemDiscounts, setItemDiscounts] = useState({});
+  const [editReceipt, setEditReceipt] = useState(null);
+  const [editQuery, setEditQuery] = useState("");
+  const [editCart, setEditCart] = useState({});
+  const [editDiscounts, setEditDiscounts] = useState({});
+  const [receiptDirectoryName, setReceiptDirectoryName] = useState("");
+  const [receiptDirectorySupported, setReceiptDirectorySupported] = useState(false);
   const backupFileInputRef = React.useRef(null);
 
   const syncFromSheet = useCallback(async (silent) => {
@@ -597,11 +624,7 @@ function App() {
 
   const allItems = useMemo(() => [...items, ...localItems], [items, localItems]);
 
-  const categories = useMemo(() => {
-    const preferred = ["Todos", "Catálogos", "Ofertas"];
-    const detected = Array.from(new Set(allItems.map(i => i.category).filter(Boolean)));
-    return [...preferred, ...detected.filter(c => !preferred.includes(c))];
-  }, [allItems]);
+  const categories = useMemo(() => ["Todos", ...Array.from(new Set(allItems.map(i => i.category)))], [allItems]);
 
   const itemsByCode = useMemo(() => {
     const m = {};
@@ -626,6 +649,16 @@ function App() {
   }, [sessionReceipts]);
 
   useEffect(() => {
+    const supported = !!window.showDirectoryPicker && !!window.indexedDB;
+    setReceiptDirectorySupported(supported);
+    if (!supported) return;
+    getStoredReceiptDirectoryHandle().then(async handle => {
+      if (!handle) return;
+      setReceiptDirectoryName(handle.name || "Carpeta seleccionada");
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
     try {
       localStorage.setItem("vendedores_receipts", JSON.stringify(sessionReceipts));
     } catch (e) {}
@@ -636,6 +669,143 @@ function App() {
       localStorage.setItem("vendedores_local_items", JSON.stringify(localItems));
     } catch (e) {}
   }, [localItems]);
+
+  const chooseReceiptDirectory = async () => {
+    if (!window.showDirectoryPicker) {
+      setToast("Tu navegador no permite elegir carpetas; se usará Descargas");
+      return;
+    }
+    try {
+      const handle = await window.showDirectoryPicker({ mode: "readwrite" });
+      const allowed = await verifyDirectoryPermission(handle, true);
+      if (!allowed) {
+        setToast("No se concedió permiso para guardar en esa carpeta");
+        return;
+      }
+      await storeReceiptDirectoryHandle(handle);
+      setReceiptDirectoryName(handle.name || "Carpeta seleccionada");
+      setToast("Carpeta de recibos seleccionada");
+    } catch (e) {
+      if (e && e.name !== "AbortError") setToast("No se pudo seleccionar la carpeta");
+    }
+  };
+
+  const saveReceiptToFolder = async (r) => {
+    if (!receiptDirectorySupported) {
+      setToast("Tu navegador no permite guardar directamente en una carpeta");
+      return;
+    }
+    try {
+      const blob = await createReceiptImageBlob(r);
+      const ok = await saveReceiptBlobToDirectory(r, blob, true);
+      if (ok) setToast("Recibo guardado en " + (receiptDirectoryName || "la carpeta seleccionada"));
+      else setToast("Elegí una carpeta de recibos primero");
+    } catch (e) {
+      setToast("No se pudo guardar el recibo en la carpeta");
+    }
+  };
+
+  const saveAllReceiptsToFolder = async () => {
+    if (!receiptDirectorySupported) {
+      setToast("Tu navegador no permite guardar directamente en una carpeta");
+      return;
+    }
+    if (!sessionReceipts.length) {
+      setToast("No hay recibos para guardar");
+      return;
+    }
+    try {
+      let handle = await getStoredReceiptDirectoryHandle();
+      if (!handle) {
+        await chooseReceiptDirectory();
+        handle = await getStoredReceiptDirectoryHandle();
+      }
+      if (!handle || !(await verifyDirectoryPermission(handle, true))) {
+        setToast("Elegí una carpeta de recibos primero");
+        return;
+      }
+      let saved = 0;
+      for (const r of sessionReceipts) {
+        const blob = await createReceiptImageBlob(r);
+        const fileHandle = await handle.getFileHandle(receiptFileName(r), { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        saved++;
+      }
+      setToast(saved + " recibo" + (saved === 1 ? " guardado" : "s guardados") + " en la carpeta");
+    } catch (e) {
+      if (e && e.name !== "AbortError") setToast("No se pudieron guardar todos los recibos");
+    }
+  };
+
+  const startEditReceipt = (r) => {
+    const nextCart = {};
+    const nextDiscounts = {};
+    (r.items || []).forEach(it => {
+      nextCart[it.code] = Number(it.qty) || 0;
+      nextDiscounts[it.code] = Number(it.discountPercent) || 0;
+    });
+    setEditReceipt(r);
+    setEditCart(nextCart);
+    setEditDiscounts(nextDiscounts);
+    setEditQuery("");
+    setSelectedReceipt(null);
+  };
+
+  const setEditQty = (code, qty) => {
+    const n = Math.max(0, parseInt(qty, 10) || 0);
+    setEditCart(prev => {
+      const next = { ...prev };
+      if (n <= 0) delete next[code];
+      else next[code] = n;
+      return next;
+    });
+    if (n <= 0) {
+      setEditDiscounts(prev => {
+        if (!(code in prev)) return prev;
+        const next = { ...prev };
+        delete next[code];
+        return next;
+      });
+    }
+  };
+
+  const setEditDiscount = (code, value) => {
+    const n = value === "" ? 0 : Math.min(100, Math.max(0, Number(value) || 0));
+    setEditDiscounts(prev => ({ ...prev, [code]: n }));
+  };
+
+  const saveEditedReceipt = async () => {
+    if (!editReceipt || editLines.length === 0) {
+      setToast("El recibo debe tener al menos un artículo");
+      return;
+    }
+    const updated = {
+      ...editReceipt,
+      items: editLines.map(l => ({
+        code: l.code,
+        desc: l.desc,
+        price: l.price,
+        qty: l.qty,
+        discountPercent: l.discountPercent,
+        lineTotal: l.lineTotal
+      })),
+      subtotal: editSubtotal,
+      discountAmount: editDiscountAmount,
+      total: editTotal,
+      updatedAt: Date.now()
+    };
+    setSessionReceipts(prev => prev.map(r => r.id === updated.id ? updated : r));
+    setSelectedReceipt(updated);
+    setLastReceipt(prev => prev && prev.id === updated.id ? updated : prev);
+    setEditReceipt(null);
+    setEditQuery("");
+    setEditCart({});
+    setEditDiscounts({});
+    const where = await saveReceiptImage(updated, true);
+    setToast(where === "folder" ? "Recibo actualizado y guardado en la carpeta" : "Recibo actualizado");
+  };
 
   const addLocalProduct = () => {
     const name = newProductName.trim();
@@ -728,33 +898,13 @@ function App() {
 
   const filteredItems = useMemo(() => {
     let list = allItems;
-    if (category !== "Todos") {
-      list = list.filter(i => {
-        if (category === "Catálogos") return i.category === "Catálogos" || i.category === "Catálogo";
-        return i.category === category;
-      });
-    }
+    if (category !== "Todos") list = list.filter(i => i.category === category);
     const q = query.trim().toLowerCase();
     if (q) {
       list = list.filter(i => i.desc.toLowerCase().includes(q) || i.code.toLowerCase().includes(q));
     }
     return list;
   }, [allItems, query, category]);
-
-  const groupedItems = useMemo(() => {
-    const groups = [];
-    const map = new Map();
-    filteredItems.forEach(item => {
-      const cat = item.category || "Catálogos";
-      if (!map.has(cat)) {
-        const group = { category: cat, items: [] };
-        map.set(cat, group);
-        groups.push(group);
-      }
-      map.get(cat).items.push(item);
-    });
-    return groups;
-  }, [filteredItems]);
 
   const cartLines = useMemo(() => {
     return Object.entries(cart)
@@ -770,6 +920,34 @@ function App() {
       .filter(l => l.desc)
       .sort((a, b) => a.desc.localeCompare(b.desc));
   }, [cart, itemsByCode, itemDiscounts]);
+
+  const editLines = useMemo(() => {
+    if (!editReceipt) return [];
+    const existingByCode = {};
+    (editReceipt.items || []).forEach(it => { existingByCode[it.code] = it; });
+    return Object.entries(editCart)
+      .filter(([, qty]) => qty > 0)
+      .map(([code, qty]) => {
+        const base = itemsByCode[code] || existingByCode[code];
+        if (!base) return null;
+        const price = Number(base.price) || 0;
+        const discountPercent = Math.min(100, Math.max(0, Number(editDiscounts[code]) || 0));
+        const lineSubtotal = price * qty;
+        const lineDiscountAmount = lineSubtotal * (discountPercent / 100);
+        const lineTotal = lineSubtotal - lineDiscountAmount;
+        return { ...base, code, qty, discountPercent, lineSubtotal, lineDiscountAmount, lineTotal };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.desc.localeCompare(b.desc));
+  }, [editReceipt, editCart, editDiscounts, itemsByCode]);
+
+  const editSubtotal = editLines.reduce((s, l) => s + l.lineSubtotal, 0);
+  const editDiscountAmount = editLines.reduce((s, l) => s + l.lineDiscountAmount, 0);
+  const editTotal = editSubtotal - editDiscountAmount;
+  const editAvailableItems = useMemo(() => {
+    const q = editQuery.trim().toLowerCase();
+    return allItems.filter(i => !q || i.desc.toLowerCase().includes(q) || i.code.toLowerCase().includes(q)).slice(0, 80);
+  }, [allItems, editQuery]);
 
   const cartCount = cartLines.reduce((s, l) => s + l.qty, 0);
   const cartTotal = cartLines.reduce((s, l) => s + l.lineSubtotal, 0);
@@ -1023,47 +1201,36 @@ function App() {
               <div style={{ fontSize: 14, marginTop: 10 }}>No se encontraron artículos para "{query}"</div>
             </div>
           )}
-          {groupedItems.map(group => (
-            <React.Fragment key={group.category}>
-              {category === "Todos" && (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "8px 2px 9px", paddingTop: 4 }}>
-                  <div style={{ width: 5, height: 24, borderRadius: 4, background: catColor(group.category) }} />
-                  <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 15, color: "#173A33" }}>{group.category}</div>
-                  <div style={{ fontSize: 11.5, color: "#6B7A74" }}>({group.items.length})</div>
-                </div>
-              )}
-              {group.items.map(item => {
-                const qty = cart[item.code] || 0;
-                const isLocal = item.code.startsWith("local_");
-                return (
-                  <div key={item.code} style={{ background: qty > 0 ? "#FCEEE8" : "#FFFFFF", borderRadius: 12, padding: "11px 12px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10, border: qty > 0 ? "1.5px solid #B0532C" : "1.5px solid transparent", boxShadow: "0 1px 2px rgba(23,58,51,0.06)" }}>
-                    <div style={{ width: 4, alignSelf: "stretch", borderRadius: 3, background: catColor(item.category), flexShrink: 0 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: "#8A9A93", fontWeight: 600, letterSpacing: 0.3 }}>{isLocal ? "PROPIO" : item.code}</div>
-                        {isLocal && qty === 0 && (
-                          <button onClick={() => deleteLocalProduct(item.code)} style={{ background: "none", border: "none", padding: 0, display: "flex" }}><TrashIcon size={11} color="#B0532C" /></button>
-                        )}
-                      </div>
-                      <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.25, margin: "2px 0 3px" }}>{item.desc}</div>
-                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: "#173A33" }}>{formatMoney(item.price)}</div>
-                    </div>
-                    {qty === 0 ? (
-                      <button onClick={() => addToCart(item.code)} style={{ background: "#173A33", color: "#F4F2EC", border: "none", borderRadius: 10, width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                        <PlusIcon size={18} />
-                      </button>
-                    ) : (
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                        <button onClick={() => setQty(item.code, qty - 1)} style={{ background: "#EDEAE1", border: "none", borderRadius: 8, width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center" }}><MinusIcon size={15} color="#173A33" /></button>
-                        <div onClick={() => promptQty(item.code, qty)} style={{ minWidth: 22, textAlign: "center", fontWeight: 700, fontSize: 14, color: "#B0532C" }}>{qty}</div>
-                        <button onClick={() => setQty(item.code, qty + 1)} style={{ background: "#173A33", border: "none", borderRadius: 8, width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center" }}><PlusIcon size={15} color="#F4F2EC" /></button>
-                      </div>
+          {filteredItems.map(item => {
+            const qty = cart[item.code] || 0;
+            const isLocal = item.code.startsWith("local_");
+            return (
+              <div key={item.code} style={{ background: qty > 0 ? "#FCEEE8" : "#FFFFFF", borderRadius: 12, padding: "11px 12px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10, border: qty > 0 ? "1.5px solid #B0532C" : "1.5px solid transparent", boxShadow: "0 1px 2px rgba(23,58,51,0.06)" }}>
+                <div style={{ width: 4, alignSelf: "stretch", borderRadius: 3, background: catColor(item.category), flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: "#8A9A93", fontWeight: 600, letterSpacing: 0.3 }}>{isLocal ? "PROPIO" : item.code}</div>
+                    {isLocal && qty === 0 && (
+                      <button onClick={() => deleteLocalProduct(item.code)} style={{ background: "none", border: "none", padding: 0, display: "flex" }}><TrashIcon size={11} color="#B0532C" /></button>
                     )}
                   </div>
-                );
-              })}
-            </React.Fragment>
-          ))}
+                  <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.25, margin: "2px 0 3px" }}>{item.desc}</div>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: "#173A33" }}>{formatMoney(item.price)}</div>
+                </div>
+                {qty === 0 ? (
+                  <button onClick={() => addToCart(item.code)} style={{ background: "#173A33", color: "#F4F2EC", border: "none", borderRadius: 10, width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <PlusIcon size={18} />
+                  </button>
+                ) : (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                    <button onClick={() => setQty(item.code, qty - 1)} style={{ background: "#EDEAE1", border: "none", borderRadius: 8, width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center" }}><MinusIcon size={15} color="#173A33" /></button>
+                    <div onClick={() => promptQty(item.code, qty)} style={{ minWidth: 22, textAlign: "center", fontWeight: 700, fontSize: 14, color: "#B0532C" }}>{qty}</div>
+                    <button onClick={() => setQty(item.code, qty + 1)} style={{ background: "#173A33", border: "none", borderRadius: 8, width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center" }}><PlusIcon size={15} color="#F4F2EC" /></button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -1162,9 +1329,31 @@ function App() {
             )}
           </div>
 
-          <div style={{ fontSize: 12.5, color: "#6B7A74", marginBottom: 14 }}>
+          <div style={{ fontSize: 12.5, color: "#6B7A74", marginBottom: 10 }}>
             Los recibos quedan guardados en este celular, incluso si actualizás o usás la app sin señal. Seleccioná uno o varios para enviarlos por WhatsApp o eliminarlos.
           </div>
+
+          <div style={{ background: "#FFFFFF", borderRadius: 12, padding: "11px 12px", marginBottom: 14, border: "1.5px solid #D8D4C8" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: "#173A33" }}>Carpeta de recibos</div>
+                <div style={{ fontSize: 11.5, color: "#6B7A74", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {receiptDirectoryName ? "Guardado automático en: " + receiptDirectoryName : receiptDirectorySupported ? "Elegí una carpeta para guardar los recibos" : "Tu navegador usará Descargas"}
+                </div>
+              </div>
+              {receiptDirectorySupported && (
+                <button onClick={chooseReceiptDirectory} style={{ background: "#173A33", color: "#F4F2EC", border: "none", borderRadius: 9, padding: "8px 10px", fontWeight: 700, fontSize: 11.5, flexShrink: 0 }}>
+                  Elegir carpeta
+                </button>
+              )}
+            </div>
+          </div>
+
+          {receiptDirectorySupported && sessionReceipts.length > 0 && receiptDirectoryName && (
+            <button onClick={saveAllReceiptsToFolder} style={{ width: "100%", background: "#FFFFFF", color: "#173A33", border: "1.5px solid #D8D4C8", borderRadius: 12, padding: "10px 12px", fontWeight: 700, fontSize: 12.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 7, marginBottom: 14 }}>
+              <SaveIcon size={15} /> Guardar todos los recibos en esta carpeta
+            </button>
+          )}
 
           {sessionReceipts.length > 0 && (
             <div style={{ background: "#173A33", borderRadius: 12, padding: "12px 14px", marginBottom: 14, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -1411,9 +1600,90 @@ function App() {
                 <span>Total</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{formatMoney(selectedReceipt.total)}</span>
               </div>
             </div>
-            <button onClick={() => shareReceipt(selectedReceipt)} style={{ background: "#25D366", color: "#fff", border: "none", borderRadius: 12, padding: "12px 20px", fontWeight: 700, fontSize: 14, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <button onClick={() => shareReceipt(selectedReceipt)} style={{ background: "#25D366", color: "#fff", border: "none", borderRadius: 12, padding: "12px 20px", fontWeight: 700, fontSize: 14, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 8 }}>
               <ShareIcon size={16} /> Compartir por WhatsApp
             </button>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <button onClick={() => startEditReceipt(selectedReceipt)} style={{ background: "#D9A441", color: "#173A33", border: "none", borderRadius: 12, padding: "12px 8px", fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                <PlusIcon size={16} /> Editar artículos
+              </button>
+              <button onClick={() => saveReceiptToFolder(selectedReceipt)} style={{ background: "#FFFFFF", color: "#173A33", border: "1.5px solid #D8D4C8", borderRadius: 12, padding: "12px 8px", fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                <SaveIcon size={16} /> Guardar en carpeta
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editReceipt && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(23,58,51,0.5)", zIndex: 45, display: "flex", alignItems: "flex-end", maxWidth: 480, margin: "0 auto" }} onClick={() => setEditReceipt(null)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#F4F2EC", borderRadius: "18px 18px 0 0", width: "100%", maxHeight: "92vh", overflowY: "auto", padding: "18px 14px 24px" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
+              <div>
+                <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 18 }}>Modificar recibo</div>
+                <div style={{ fontSize: 12, color: "#6B7A74", marginTop: 2 }}>{editReceipt.businessName} · {fmtDate(editReceipt.date)}</div>
+              </div>
+              <button onClick={() => setEditReceipt(null)} style={{ background: "none", border: "none", padding: 4 }}><XIcon size={20} color="#6B7A74" /></button>
+            </div>
+
+            <div style={{ background: "#FFFFFF", borderRadius: 12, padding: "10px 12px", marginBottom: 10 }}>
+              <div style={{ fontSize: 12, color: "#6B7A74", marginBottom: 7, fontWeight: 600 }}>Artículos del recibo</div>
+              {editLines.map(l => (
+                <div key={l.code} style={{ padding: "8px 0", borderBottom: "1px solid #F0EEE6" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>{l.desc}</div>
+                      <div style={{ fontSize: 11.5, color: "#6B7A74" }}>{formatMoney(l.price)} c/u</div>
+                    </div>
+                    <button onClick={() => setEditQty(l.code, l.qty - 1)} style={{ background: "#EDEAE1", border: "none", borderRadius: 8, width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center" }}><MinusIcon size={14} color="#173A33" /></button>
+                    <div onClick={() => { const n = window.prompt("Cantidad:", String(l.qty)); if (n !== null) setEditQty(l.code, n.replace(/[^\d]/g, "")); }} style={{ minWidth: 22, textAlign: "center", fontWeight: 700, color: "#B0532C" }}>{l.qty}</div>
+                    <button onClick={() => setEditQty(l.code, l.qty + 1)} style={{ background: "#173A33", border: "none", borderRadius: 8, width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center" }}><PlusIcon size={14} color="#F4F2EC" /></button>
+                    <button onClick={() => setEditQty(l.code, 0)} style={{ background: "none", border: "none", padding: 2 }}><TrashIcon size={15} color="#B0532C" /></button>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, marginTop: 7 }}>
+                    <PercentIcon size={12} color="#6B7A74" />
+                    <span style={{ fontSize: 11.5, color: "#6B7A74" }}>Desc. %</span>
+                    <input type="number" min="0" max="100" value={l.discountPercent === 0 ? "" : l.discountPercent} onChange={e => setEditDiscount(l.code, e.target.value)} placeholder="0" style={{ width: 50, border: "1.5px solid #D8D4C8", borderRadius: 8, padding: "5px 6px", fontSize: 12, textAlign: "right", outline: "none" }} />
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 12.5, minWidth: 65, textAlign: "right" }}>{formatMoney(l.lineTotal)}</div>
+                  </div>
+                </div>
+              ))}
+              {editLines.length === 0 && <div style={{ padding: "16px 0", textAlign: "center", color: "#6B7A74", fontSize: 13 }}>No hay artículos. Agregá uno abajo.</div>}
+            </div>
+
+            <div style={{ background: "#FFFFFF", borderRadius: 12, padding: "10px 12px", marginBottom: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#173A33", marginBottom: 7 }}>Agregar artículos al mismo recibo</div>
+              <div style={{ background: "#F4F2EC", borderRadius: 9, padding: "8px 10px", display: "flex", alignItems: "center", gap: 7, marginBottom: 8 }}>
+                <SearchIcon size={15} color="#6B7A74" />
+                <input value={editQuery} onChange={e => setEditQuery(e.target.value)} placeholder="Buscar escoba, producto, código..." style={{ border: "none", outline: "none", background: "transparent", flex: 1, fontSize: 13 }} />
+                {editQuery && <button onClick={() => setEditQuery("")} style={{ background: "none", border: "none", padding: 2 }}><XIcon size={14} color="#6B7A74" /></button>}
+              </div>
+              {editAvailableItems.map(item => {
+                const qty = editCart[item.code] || 0;
+                return (
+                  <div key={item.code} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: "1px solid #F0EEE6" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600 }}>{item.desc}</div>
+                      <div style={{ fontSize: 11, color: "#6B7A74" }}>{formatMoney(item.price)}</div>
+                    </div>
+                    {qty > 0 && <div style={{ fontSize: 12, fontWeight: 700, color: "#B0532C" }}>{qty}</div>}
+                    <button onClick={() => setEditQty(item.code, qty + 1)} style={{ background: "#173A33", color: "#F4F2EC", border: "none", borderRadius: 8, width: 31, height: 31, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><PlusIcon size={15} /></button>
+                  </div>
+                );
+              })}
+              {editAvailableItems.length === 0 && <div style={{ padding: "12px 0", textAlign: "center", color: "#6B7A74", fontSize: 12.5 }}>No se encontró el artículo.</div>}
+            </div>
+
+            <div style={{ background: "#FFFFFF", borderRadius: 12, padding: "12px 14px", marginBottom: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#6B7A74" }}><span>Subtotal</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{formatMoney(editSubtotal)}</span></div>
+              {editDiscountAmount > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#B0532C", marginTop: 4 }}><span>Descuento total</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>-{formatMoney(editDiscountAmount)}</span></div>}
+              <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 15, marginTop: 7, paddingTop: 8, borderTop: "1px solid #F0EEE6" }}><span>Total</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{formatMoney(editTotal)}</span></div>
+            </div>
+
+            <button onClick={saveEditedReceipt} disabled={editLines.length === 0} style={{ width: "100%", background: editLines.length ? "#173A33" : "#C7C2B4", color: "#F4F2EC", border: "none", borderRadius: 12, padding: "14px", fontWeight: 700, fontSize: 15, marginBottom: 8 }}>
+              Guardar cambios en este recibo
+            </button>
+            <button onClick={() => setEditReceipt(null)} style={{ width: "100%", background: "none", color: "#6B7A74", border: "none", padding: "8px", fontWeight: 600, fontSize: 13 }}>Cancelar</button>
           </div>
         </div>
       )}
