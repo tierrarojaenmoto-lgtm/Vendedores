@@ -18,15 +18,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script>
-  // Offline boot helper: never leave a blank screen while external libraries are loading.
-  window.addEventListener("error", function(e){
-    if (!document.getElementById("root")?.hasChildNodes()) {
-      const r=document.getElementById("root");
-      if(r) r.innerHTML="<div style=\"padding:24px;font-family:system-ui;text-align:center\"><h2>Vendedores</h2><p>Esperando los componentes de la aplicación…</p><p style=\"font-size:13px;opacity:.7\">Si el teléfono está sin Internet y es la primera vez que se abre, necesitaremos empaquetar las librerías dentro de la APK.</p></div>";
-    }
-  }, true);
-</script>
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
   html, body { background: #F4F2EC; }
@@ -48,8 +39,14 @@ const { useState, useMemo, useCallback, useEffect } = React;
 // hoja y mismo metodo que usa gpdistribuciones.vercel.app). No requiere
 // clave de API ni que el archivo sea un Google Sheets nativo: alcanza con
 // que el archivo este compartido como "Cualquiera con el enlace - Lector".
-// Formato esperado de la hoja: columnas Producto, Precio, Ofertas
-// (tambien acepta code/category/name/price o Codigo/Descripcion/Precio/Categoria)
+// Formato esperado de la hoja: columnas Codigo, Producto, Costo, Precio, Categoria, Ofertas
+// (el orden de columnas no importa, se detectan por el nombre del encabezado;
+// tambien acepta Clave en vez de Codigo, y "Precio de Compra"/"Precio de Venta"
+// en vez de Costo/Precio, para pegar directo la exportacion de la app de listas)
+// La columna Costo es opcional: si no existe o esta vacia, el costo se toma como 0
+// y las ganancias van a coincidir con el total vendido.
+// La columna Categoria es opcional: si no existe, se usa la columna E (indice 4)
+// como separador de categorias (comportamiento anterior).
 // ---------------------------------------------------------------------
 const SHEET_ID = "1Eiz9HNsQT78lrJeqjrRrp4E9JOZSBQgh";
 const SHEET_GID = "0";
@@ -131,23 +128,27 @@ function receiptToText(r) {
 function consolidateReceipts(receipts) {
   const totalsByCode = {};
   let grandTotal = 0;
+  let grandProfit = 0;
   receipts.forEach(r => {
     grandTotal += r.total;
+    grandProfit += r.totalProfit != null ? r.totalProfit : 0;
     r.items.forEach(it => {
       if (!totalsByCode[it.code]) {
-        totalsByCode[it.code] = { desc: it.desc, qty: 0, subtotal: 0 };
+        totalsByCode[it.code] = { desc: it.desc, qty: 0, subtotal: 0, profit: 0 };
       }
       const lineTotal = it.lineTotal != null ? it.lineTotal : it.price * it.qty;
+      const lineProfit = it.lineProfit != null ? it.lineProfit : 0;
       totalsByCode[it.code].qty += it.qty;
       totalsByCode[it.code].subtotal += lineTotal;
+      totalsByCode[it.code].profit += lineProfit;
     });
   });
   const lines = Object.values(totalsByCode).sort((a, b) => a.desc.localeCompare(b.desc));
-  return { lines, grandTotal, saleCount: receipts.length };
+  return { lines, grandTotal, grandProfit, saleCount: receipts.length };
 }
 
 function buildReportSummaryText(receipts) {
-  const { lines, grandTotal, saleCount } = consolidateReceipts(receipts);
+  const { lines, grandTotal, grandProfit, saleCount } = consolidateReceipts(receipts);
   const out = [];
   out.push("*Reporte de ventas*");
   out.push(fmtDate(Date.now()));
@@ -158,13 +159,14 @@ function buildReportSummaryText(receipts) {
   });
   out.push("");
   out.push("*Total: " + formatMoney(grandTotal) + "*");
+  out.push("*Ganancia: " + formatMoney(grandProfit) + "*");
   return out.join("\n");
 }
 
 function generateReportPDF(receipts) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
-  const { lines, grandTotal, saleCount } = consolidateReceipts(receipts);
+  const { lines, grandTotal, grandProfit, saleCount } = consolidateReceipts(receipts);
   const marginLeft = 14;
   const colQty = 140;
   const colSubtotal = 165;
@@ -214,6 +216,11 @@ function generateReportPDF(receipts) {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(13);
   doc.text("TOTAL: " + formatMoney(grandTotal), marginLeft, y);
+  y += 7;
+  doc.setFontSize(11);
+  doc.setTextColor(46, 107, 94);
+  doc.text("GANANCIA: " + formatMoney(grandProfit), marginLeft, y);
+  doc.setTextColor(0, 0, 0);
 
   return doc;
 }
@@ -480,20 +487,25 @@ function parseSheetRows(rows) {
   if (!rows || !rows.length) return [];
 
   const header = rows[0].map(normalizeHeader);
-  const idxCode = header.findIndex(h => h.includes("codigo") || h === "code");
+  const idxCode = header.findIndex(h => h.includes("codigo") || h.includes("clave") || h === "code");
   const idxDesc = header.findIndex(h =>
     h.includes("descripcion") ||
     h.includes("name") ||
     h.includes("nombre") ||
     h.includes("producto")
   );
-  const idxPrice = header.findIndex(h => h.includes("precio") || h.includes("price"));
+  // "Costo" / "Precio de Compra" -> precio de costo.
+  // "Precio" / "Precio de Venta" -> precio de venta (se excluye si menciona costo/compra
+  // para no confundir "Precio de Compra" con el precio de venta).
+  const idxCost = header.findIndex(h => h.includes("costo") || h.includes("compra"));
+  const idxPrice = header.findIndex(h => (h.includes("precio") || h.includes("price")) && !h.includes("costo") && !h.includes("compra"));
   const idxOfertas = header.findIndex(h => h.includes("oferta"));
+  const idxCategoryHeader = header.findIndex(h => h.includes("categoria") || h.includes("category") || h.includes("rubro"));
 
-  // IMPORTANTE:
-  // Google Sheets usa índice 0 para la columna A.
-  // Por lo tanto, la columna E corresponde al índice 4.
-  const CATEGORY_COLUMN_INDEX = 4;
+  // Columna de categoria: si la hoja tiene una columna con encabezado
+  // "Categoria" (o similar) se usa esa. Si no, se mantiene el comportamiento
+  // anterior: la columna E (indice 4) funciona como separador de categorias.
+  const CATEGORY_COLUMN_INDEX = idxCategoryHeader !== -1 ? idxCategoryHeader : 4;
 
   if (idxDesc === -1 || idxPrice === -1) return [];
 
@@ -504,9 +516,10 @@ function parseSheetRows(rows) {
     const row = rows[i];
     if (!row) continue;
 
-    // La columna E funciona como separador de categorías.
-    // Cuando aparece un texto en E, esa categoría se mantiene
-    // para los productos siguientes hasta que aparezca otra.
+    // Si aparece texto en la columna de categoria, esa categoria se mantiene
+    // para los productos siguientes hasta que aparezca otra (funciona tanto
+    // si la categoria se repite en cada fila como si aparece solo como
+    // separador de bloques).
     const categoryCell = (row[CATEGORY_COLUMN_INDEX] ?? "").toString().trim();
     if (categoryCell) {
       currentCategory = categoryCell;
@@ -521,6 +534,7 @@ function parseSheetRows(rows) {
         : "r" + i;
 
     const price = parsePrice(row[idxPrice]);
+    const cost = idxCost !== -1 ? parsePrice(row[idxCost]) : 0;
 
     const ofertaTexto =
       idxOfertas !== -1
@@ -533,6 +547,7 @@ function parseSheetRows(rows) {
       code: code || ("r" + i),
       desc,
       price,
+      cost,
       category: currentCategory || "Sin categoría",
       offer: isOffer
     });
@@ -599,6 +614,7 @@ function App() {
   const [addProductOpen, setAddProductOpen] = useState(false);
   const [newProductName, setNewProductName] = useState("");
   const [newProductPrice, setNewProductPrice] = useState("");
+  const [newProductCost, setNewProductCost] = useState("");
   const [newProductCategory, setNewProductCategory] = useState("Mis productos");
   const [itemDiscounts, setItemDiscounts] = useState({});
   const [editReceipt, setEditReceipt] = useState(null);
@@ -862,15 +878,17 @@ function App() {
   const addLocalProduct = () => {
     const name = newProductName.trim();
     const price = parsePrice(newProductPrice);
+    const cost = parsePrice(newProductCost);
     if (!name || price <= 0) {
       setToast("Completá nombre y precio válidos");
       return;
     }
     const code = "local_" + Date.now().toString(36);
     const category = newProductCategory.trim() || "Mis productos";
-    setLocalItems(list => [...list, { code, desc: name, price, category }]);
+    setLocalItems(list => [...list, { code, desc: name, price, cost, category }]);
     setNewProductName("");
     setNewProductPrice("");
+    setNewProductCost("");
     setAddProductOpen(false);
     setToast("Producto agregado a la lista");
   };
@@ -977,7 +995,9 @@ function App() {
         const lineSubtotal = base ? base.price * qty : 0;
         const lineDiscountAmount = lineSubtotal * (discountPercent / 100);
         const lineTotal = lineSubtotal - lineDiscountAmount;
-        return { ...base, qty, discountPercent, lineSubtotal, lineDiscountAmount, lineTotal };
+        const lineCost = base ? (Number(base.cost) || 0) * qty : 0;
+        const lineProfit = lineTotal - lineCost;
+        return { ...base, qty, discountPercent, lineSubtotal, lineDiscountAmount, lineTotal, lineCost, lineProfit };
       })
       .filter(l => l.desc)
       .sort((a, b) => a.desc.localeCompare(b.desc));
@@ -997,7 +1017,10 @@ function App() {
         const lineSubtotal = price * qty;
         const lineDiscountAmount = lineSubtotal * (discountPercent / 100);
         const lineTotal = lineSubtotal - lineDiscountAmount;
-        return { ...base, code, qty, discountPercent, lineSubtotal, lineDiscountAmount, lineTotal };
+        const cost = Number(base.cost) || 0;
+        const lineCost = cost * qty;
+        const lineProfit = lineTotal - lineCost;
+        return { ...base, code, qty, discountPercent, lineSubtotal, lineDiscountAmount, lineTotal, lineCost, lineProfit };
       })
       .filter(Boolean)
       .sort((a, b) => a.desc.localeCompare(b.desc));
@@ -1016,6 +1039,7 @@ function App() {
   const discountAmount = cartLines.reduce((s, l) => s + l.lineDiscountAmount, 0);
   const finalTotal = cartTotal - discountAmount;
   const totalAllSales = useMemo(() => sessionReceipts.reduce((s, r) => s + r.total, 0), [sessionReceipts]);
+  const totalAllProfit = useMemo(() => sessionReceipts.reduce((s, r) => s + (r.totalProfit != null ? r.totalProfit : 0), 0), [sessionReceipts]);
 
   const addToCart = useCallback((code) => {
     setCart(c => ({ ...c, [code]: (c[code] || 0) + 1 }));
@@ -1066,10 +1090,12 @@ function App() {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
       businessName: businessName.trim(),
       date: Date.now(),
-      items: cartLines.map(l => ({ code: l.code, desc: l.desc, price: l.price, qty: l.qty, discountPercent: l.discountPercent, lineTotal: l.lineTotal })),
+      items: cartLines.map(l => ({ code: l.code, desc: l.desc, price: l.price, cost: Number(l.cost) || 0, qty: l.qty, discountPercent: l.discountPercent, lineTotal: l.lineTotal, lineCost: l.lineCost, lineProfit: l.lineProfit })),
       subtotal: cartTotal,
       discountAmount: discountAmount,
       total: finalTotal,
+      totalCost: cartLines.reduce((s, l) => s + l.lineCost, 0),
+      totalProfit: cartLines.reduce((s, l) => s + l.lineProfit, 0),
     };
     downloadReceiptImage(receipt);
     setSessionReceipts(list => [receipt, ...list]);
@@ -1226,7 +1252,9 @@ function App() {
         </div>
         {sessionReceipts.length > 0 && (
           <div style={{ marginTop: 8, fontSize: 11.5, color: "#9CC2B6", fontWeight: 500 }}>
-            Total vendido: <span style={{ color: "#D9A441", fontWeight: 700 }}>{formatMoney(totalAllSales)}</span> · {sessionReceipts.length} venta{sessionReceipts.length === 1 ? "" : "s"}
+            Total vendido: <span style={{ color: "#D9A441", fontWeight: 700 }}>{formatMoney(totalAllSales)}</span>
+            {" · "}Ganancia: <span style={{ color: "#7FD9A0", fontWeight: 700 }}>{formatMoney(totalAllProfit)}</span>
+            {" · "}{sessionReceipts.length} venta{sessionReceipts.length === 1 ? "" : "s"}
           </div>
         )}
 
@@ -1455,9 +1483,15 @@ function App() {
           )}
 
           {sessionReceipts.length > 0 && (
-            <div style={{ background: "#173A33", borderRadius: 12, padding: "12px 14px", marginBottom: 14, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ color: "#9CC2B6", fontSize: 12.5, fontWeight: 600 }}>Total vendido ({sessionReceipts.length} venta{sessionReceipts.length === 1 ? "" : "s"})</div>
-              <div style={{ color: "#D9A441", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 16 }}>{formatMoney(totalAllSales)}</div>
+            <div style={{ background: "#173A33", borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ color: "#9CC2B6", fontSize: 12.5, fontWeight: 600 }}>Total vendido ({sessionReceipts.length} venta{sessionReceipts.length === 1 ? "" : "s"})</div>
+                <div style={{ color: "#D9A441", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 16 }}>{formatMoney(totalAllSales)}</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 6, paddingTop: 6, borderTop: "1px solid rgba(255,255,255,0.12)" }}>
+                <div style={{ color: "#9CC2B6", fontSize: 12.5, fontWeight: 600 }}>Ganancia total</div>
+                <div style={{ color: "#7FD9A0", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 16 }}>{formatMoney(totalAllProfit)}</div>
+              </div>
             </div>
           )}
 
@@ -1817,6 +1851,9 @@ function App() {
               style={{ width: "100%", border: "1.5px solid #D8D4C8", borderRadius: 10, padding: "12px 13px", fontSize: 14.5, outline: "none", background: "#FFFFFF", marginBottom: 12 }} />
             <label style={{ fontSize: 12.5, fontWeight: 600, color: "#173A33", marginBottom: 6, display: "block" }}>Precio</label>
             <input value={newProductPrice} onChange={e => setNewProductPrice(e.target.value)} placeholder="Ej: 3500" inputMode="decimal"
+              style={{ width: "100%", border: "1.5px solid #D8D4C8", borderRadius: 10, padding: "12px 13px", fontSize: 14.5, outline: "none", background: "#FFFFFF", marginBottom: 12 }} />
+            <label style={{ fontSize: 12.5, fontWeight: 600, color: "#173A33", marginBottom: 6, display: "block" }}>Costo (opcional, para calcular ganancia)</label>
+            <input value={newProductCost} onChange={e => setNewProductCost(e.target.value)} placeholder="Ej: 2200" inputMode="decimal"
               style={{ width: "100%", border: "1.5px solid #D8D4C8", borderRadius: 10, padding: "12px 13px", fontSize: 14.5, outline: "none", background: "#FFFFFF", marginBottom: 12 }} />
             <label style={{ fontSize: 12.5, fontWeight: 600, color: "#173A33", marginBottom: 6, display: "block" }}>Categoría (opcional)</label>
             <input value={newProductCategory} onChange={e => setNewProductCategory(e.target.value)} placeholder="Mis productos"
