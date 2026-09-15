@@ -587,10 +587,23 @@ function App() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("Todos");
 
-  const [cart, setCart] = useState({});
+  const [cart, setCart] = useState(() => {
+    try {
+      const saved = localStorage.getItem("vendedores_current_cart");
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
   const [toast, setToast] = useState(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [businessName, setBusinessName] = useState("");
+  const [businessName, setBusinessName] = useState(() => {
+    try {
+      return localStorage.getItem("vendedores_current_business_name") || "";
+    } catch (e) {
+      return "";
+    }
+  });
   const [savedClients, setSavedClients] = useState(() => {
     try {
       const saved = localStorage.getItem("vendedores_saved_clients");
@@ -636,7 +649,14 @@ function App() {
   const [newProductPrice, setNewProductPrice] = useState("");
   const [newProductCost, setNewProductCost] = useState("");
   const [newProductCategory, setNewProductCategory] = useState("Mis productos");
-  const [itemDiscounts, setItemDiscounts] = useState({});
+  const [itemDiscounts, setItemDiscounts] = useState(() => {
+    try {
+      const saved = localStorage.getItem("vendedores_current_discounts");
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
   const [editReceipt, setEditReceipt] = useState(null);
   const [editQuery, setEditQuery] = useState("");
   const [editCart, setEditCart] = useState({});
@@ -769,6 +789,24 @@ function App() {
       setReceiptDirectoryName(handle.name || "Carpeta seleccionada");
     }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("vendedores_current_cart", JSON.stringify(cart));
+    } catch (e) {}
+  }, [cart]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("vendedores_current_discounts", JSON.stringify(itemDiscounts));
+    } catch (e) {}
+  }, [itemDiscounts]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("vendedores_current_business_name", businessName);
+    } catch (e) {}
+  }, [businessName]);
 
   useEffect(() => {
     try {
