@@ -462,7 +462,7 @@ async function saveReceiptImage(r, allowDownloadFallback = true) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = receiptFileName(r);
+  a.download = "Recibos Vendedores/" + receiptFileName(r);
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -1078,7 +1078,7 @@ function App() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = fileName;
+      a.download = "Backups Vendedores/" + fileName;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -1653,7 +1653,7 @@ function App() {
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 12.5, fontWeight: 700, color: "#173A33" }}>Carpeta de recibos</div>
                 <div style={{ fontSize: 11.5, color: "#6B7A74", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {receiptDirectoryName ? "Guardado automático en: " + receiptDirectoryName : receiptDirectorySupported ? "Elegí una carpeta para guardar los recibos" : "Tu navegador usará Descargas"}
+                  {receiptDirectoryName ? "Guardado automático en: " + receiptDirectoryName : receiptDirectorySupported ? "Elegí una carpeta para guardar los recibos" : "Se guardan solos en Descargas / Recibos Vendedores"}
                 </div>
               </div>
               {receiptDirectorySupported && (
@@ -1715,7 +1715,7 @@ function App() {
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 12.5, fontWeight: 700, color: "#173A33" }}>Carpeta de backups</div>
                 <div style={{ fontSize: 11.5, color: "#6B7A74", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {backupDirectoryName ? "Guardado automático en: " + backupDirectoryName : receiptDirectorySupported ? "Elegí una carpeta para guardar las copias de seguridad" : "Tu navegador usará Descargas"}
+                  {backupDirectoryName ? "Guardado automático en: " + backupDirectoryName : receiptDirectorySupported ? "Elegí una carpeta para guardar las copias de seguridad" : "Se guardan solos en Descargas / Backups Vendedores"}
                 </div>
               </div>
               {receiptDirectorySupported && (
