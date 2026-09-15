@@ -455,7 +455,7 @@ async function saveBlobToBackupDirectory(fileName, blob, requestPermission = fal
 async function saveReceiptImage(r, allowDownloadFallback = true) {
   const blob = await createReceiptImageBlob(r);
   try {
-    if (await saveReceiptBlobToDirectory(r, blob, false)) return "folder";
+    if (await saveReceiptBlobToDirectory(r, blob, true)) return "folder";
   } catch (e) {}
 
   if (!allowDownloadFallback) return "none";
