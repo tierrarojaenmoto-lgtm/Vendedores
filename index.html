@@ -371,6 +371,7 @@ function createReceiptImageBlob(r) {
 const RECEIPT_DB_NAME = "vendedores_receipts_storage";
 const RECEIPT_DB_STORE = "settings";
 const RECEIPT_DIR_KEY = "receiptDirectory";
+const BACKUP_DIR_KEY = "backupDirectory";
 
 function openReceiptStorageDB() {
   return new Promise((resolve, reject) => {
@@ -384,23 +385,23 @@ function openReceiptStorageDB() {
   });
 }
 
-async function storeReceiptDirectoryHandle(handle) {
+async function storeDirectoryHandle(key, handle) {
   const db = await openReceiptStorageDB();
   await new Promise((resolve, reject) => {
     const tx = db.transaction(RECEIPT_DB_STORE, "readwrite");
-    tx.objectStore(RECEIPT_DB_STORE).put(handle, RECEIPT_DIR_KEY);
+    tx.objectStore(RECEIPT_DB_STORE).put(handle, key);
     tx.oncomplete = resolve;
     tx.onerror = () => reject(tx.error || new Error("No se pudo guardar la carpeta"));
   });
   db.close();
 }
 
-async function getStoredReceiptDirectoryHandle() {
+async function getStoredDirectoryHandle(key) {
   try {
     const db = await openReceiptStorageDB();
     const handle = await new Promise((resolve, reject) => {
       const tx = db.transaction(RECEIPT_DB_STORE, "readonly");
-      const req = tx.objectStore(RECEIPT_DB_STORE).get(RECEIPT_DIR_KEY);
+      const req = tx.objectStore(RECEIPT_DB_STORE).get(key);
       req.onsuccess = () => resolve(req.result || null);
       req.onerror = () => reject(req.error);
     });
@@ -409,6 +410,14 @@ async function getStoredReceiptDirectoryHandle() {
   } catch (e) {
     return null;
   }
+}
+
+async function storeReceiptDirectoryHandle(handle) {
+  return storeDirectoryHandle(RECEIPT_DIR_KEY, handle);
+}
+
+async function getStoredReceiptDirectoryHandle() {
+  return getStoredDirectoryHandle(RECEIPT_DIR_KEY);
 }
 
 async function verifyDirectoryPermission(handle, requestPermission) {
@@ -425,6 +434,18 @@ async function saveReceiptBlobToDirectory(r, blob, requestPermission = false) {
   const allowed = await verifyDirectoryPermission(handle, requestPermission);
   if (!allowed) return false;
   const fileHandle = await handle.getFileHandle(receiptFileName(r), { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(blob);
+  await writable.close();
+  return true;
+}
+
+async function saveBlobToBackupDirectory(fileName, blob, requestPermission = false) {
+  const handle = await getStoredDirectoryHandle(BACKUP_DIR_KEY);
+  if (!handle) return false;
+  const allowed = await verifyDirectoryPermission(handle, requestPermission);
+  if (!allowed) return false;
+  const fileHandle = await handle.getFileHandle(fileName, { create: true });
   const writable = await fileHandle.createWritable();
   await writable.write(blob);
   await writable.close();
@@ -663,6 +684,7 @@ function App() {
   const [editDiscounts, setEditDiscounts] = useState({});
   const [receiptDirectoryName, setReceiptDirectoryName] = useState("");
   const [receiptDirectorySupported, setReceiptDirectorySupported] = useState(false);
+  const [backupDirectoryName, setBackupDirectoryName] = useState("");
   const backupFileInputRef = React.useRef(null);
 
   const syncFromSheet = useCallback(async (silent) => {
@@ -788,6 +810,10 @@ function App() {
       if (!handle) return;
       setReceiptDirectoryName(handle.name || "Carpeta seleccionada");
     }).catch(() => {});
+    getStoredDirectoryHandle(BACKUP_DIR_KEY).then(async handle => {
+      if (!handle) return;
+      setBackupDirectoryName(handle.name || "Carpeta seleccionada");
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -850,6 +876,26 @@ function App() {
       await storeReceiptDirectoryHandle(handle);
       setReceiptDirectoryName(handle.name || "Carpeta seleccionada");
       setToast("Carpeta de recibos seleccionada");
+    } catch (e) {
+      if (e && e.name !== "AbortError") setToast("No se pudo seleccionar la carpeta");
+    }
+  };
+
+  const chooseBackupDirectory = async () => {
+    if (!window.showDirectoryPicker) {
+      setToast("Tu navegador no permite elegir carpetas; se usará Descargas");
+      return;
+    }
+    try {
+      const handle = await window.showDirectoryPicker({ mode: "readwrite" });
+      const allowed = await verifyDirectoryPermission(handle, true);
+      if (!allowed) {
+        setToast("No se concedió permiso para guardar en esa carpeta");
+        return;
+      }
+      await storeDirectoryHandle(BACKUP_DIR_KEY, handle);
+      setBackupDirectoryName(handle.name || "Carpeta seleccionada");
+      setToast("Carpeta de backups seleccionada");
     } catch (e) {
       if (e && e.name !== "AbortError") setToast("No se pudo seleccionar la carpeta");
     }
@@ -1005,7 +1051,7 @@ function App() {
     });
   };
 
-  const exportBackup = () => {
+  const exportBackup = async () => {
     try {
       const backup = {
         type: "vendedores_backup",
@@ -1015,12 +1061,24 @@ function App() {
         sessionReceipts,
       };
       const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
       const d = new Date();
       const stamp = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0") + "_" + String(d.getHours()).padStart(2, "0") + String(d.getMinutes()).padStart(2, "0");
+      const fileName = "backup_vendedores_" + stamp + ".json";
+
+      let savedToFolder = false;
+      try {
+        savedToFolder = await saveBlobToBackupDirectory(fileName, blob, true);
+      } catch (e) {}
+
+      if (savedToFolder) {
+        setToast("Copia de seguridad guardada en " + (backupDirectoryName || "la carpeta seleccionada"));
+        return;
+      }
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
       a.href = url;
-      a.download = "backup_vendedores_" + stamp + ".json";
+      a.download = fileName;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -1651,6 +1709,22 @@ function App() {
               )}
             </div>
           )}
+
+          <div style={{ background: "#FFFFFF", borderRadius: 12, padding: "11px 12px", marginBottom: 10, border: "1.5px solid #D8D4C8" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: "#173A33" }}>Carpeta de backups</div>
+                <div style={{ fontSize: 11.5, color: "#6B7A74", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {backupDirectoryName ? "Guardado automático en: " + backupDirectoryName : receiptDirectorySupported ? "Elegí una carpeta para guardar las copias de seguridad" : "Tu navegador usará Descargas"}
+                </div>
+              </div>
+              {receiptDirectorySupported && (
+                <button onClick={chooseBackupDirectory} style={{ background: "#173A33", color: "#F4F2EC", border: "none", borderRadius: 9, padding: "8px 10px", fontWeight: 700, fontSize: 11.5, flexShrink: 0 }}>
+                  Elegir carpeta
+                </button>
+              )}
+            </div>
+          </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
             <button
