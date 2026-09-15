@@ -857,11 +857,15 @@ function App() {
         price: l.price,
         qty: l.qty,
         discountPercent: l.discountPercent,
-        lineTotal: l.lineTotal
+        lineTotal: l.lineTotal,
+        lineCost: l.lineCost,
+        lineProfit: l.lineProfit
       })),
       subtotal: editSubtotal,
       discountAmount: editDiscountAmount,
       total: editTotal,
+      totalCost: editLines.reduce((s, l) => s + l.lineCost, 0),
+      totalProfit: editLines.reduce((s, l) => s + l.lineProfit, 0),
       updatedAt: Date.now()
     };
     setSessionReceipts(prev => prev.map(r => r.id === updated.id ? updated : r));
