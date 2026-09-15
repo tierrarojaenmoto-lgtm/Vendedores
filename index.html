@@ -591,6 +591,26 @@ function App() {
   const [toast, setToast] = useState(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [businessName, setBusinessName] = useState("");
+  const [savedClients, setSavedClients] = useState(() => {
+    try {
+      const saved = localStorage.getItem("vendedores_saved_clients");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    try {
+      const receiptsSaved = localStorage.getItem("vendedores_receipts");
+      if (receiptsSaved) {
+        const parsed = JSON.parse(receiptsSaved);
+        const names = [];
+        const seen = new Set();
+        parsed.forEach(r => {
+          const n = (r.businessName || "").trim();
+          if (n && !seen.has(n.toLowerCase())) { seen.add(n.toLowerCase()); names.push(n); }
+        });
+        return names;
+      }
+    } catch (e) {}
+    return [];
+  });
   const [sessionReceipts, setSessionReceipts] = useState(() => {
     try {
       const saved = localStorage.getItem("vendedores_receipts");
@@ -680,7 +700,31 @@ function App() {
     return () => { clearInterval(interval); document.removeEventListener("visibilitychange", onVisible); };
   }, [syncFromSheet]);
 
-  const allItems = useMemo(() => [...items, ...localItems], [items, localItems]);
+  const [offerOverrides, setOfferOverrides] = useState(() => {
+    try {
+      const saved = localStorage.getItem("vendedores_offer_overrides");
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("vendedores_offer_overrides", JSON.stringify(offerOverrides));
+    } catch (e) {}
+  }, [offerOverrides]);
+
+  const toggleOffer = (code, currentValue) => {
+    setOfferOverrides(prev => ({ ...prev, [code]: !currentValue }));
+  };
+
+  const allItems = useMemo(() => {
+    return [...items, ...localItems].map(i => ({
+      ...i,
+      offer: offerOverrides[i.code] != null ? offerOverrides[i.code] : !!i.offer
+    }));
+  }, [items, localItems, offerOverrides]);
 
   // Botones de acceso rápido. La categoría de cada producto se toma de la
   // columna E y "Ofertas" se toma de la columna Ofertas.
@@ -725,6 +769,21 @@ function App() {
       setReceiptDirectoryName(handle.name || "Carpeta seleccionada");
     }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("vendedores_saved_clients", JSON.stringify(savedClients));
+    } catch (e) {}
+  }, [savedClients]);
+
+  const addSavedClient = (name) => {
+    const trimmed = (name || "").trim();
+    if (!trimmed) return;
+    setSavedClients(prev => {
+      if (prev.some(n => n.toLowerCase() === trimmed.toLowerCase())) return prev;
+      return [trimmed, ...prev].slice(0, 500);
+    });
+  };
 
   useEffect(() => {
     try {
@@ -1038,12 +1097,30 @@ function App() {
     return allItems.filter(i => !q || i.desc.toLowerCase().includes(q) || i.code.toLowerCase().includes(q)).slice(0, 80);
   }, [allItems, editQuery]);
 
+  const [clientSuggestOpen, setClientSuggestOpen] = useState(false);
+  const clientSuggestions = useMemo(() => {
+    const q = businessName.trim().toLowerCase();
+    return savedClients.filter(n => !q || n.toLowerCase().includes(q)).slice(0, 6);
+  }, [savedClients, businessName]);
+
   const cartCount = cartLines.reduce((s, l) => s + l.qty, 0);
   const cartTotal = cartLines.reduce((s, l) => s + l.lineSubtotal, 0);
   const discountAmount = cartLines.reduce((s, l) => s + l.lineDiscountAmount, 0);
   const finalTotal = cartTotal - discountAmount;
   const totalAllSales = useMemo(() => sessionReceipts.reduce((s, r) => s + r.total, 0), [sessionReceipts]);
   const totalAllProfit = useMemo(() => sessionReceipts.reduce((s, r) => s + (r.totalProfit != null ? r.totalProfit : 0), 0), [sessionReceipts]);
+  const [profitPanelOpen, setProfitPanelOpen] = useState(false);
+  const profitByClient = useMemo(() => {
+    const byName = {};
+    sessionReceipts.forEach(r => {
+      const name = r.businessName || "Sin nombre";
+      if (!byName[name]) byName[name] = { name, total: 0, profit: 0, count: 0 };
+      byName[name].total += r.total || 0;
+      byName[name].profit += r.totalProfit != null ? r.totalProfit : 0;
+      byName[name].count += 1;
+    });
+    return Object.values(byName).sort((a, b) => b.profit - a.profit);
+  }, [sessionReceipts]);
 
   const addToCart = useCallback((code) => {
     setCart(c => ({ ...c, [code]: (c[code] || 0) + 1 }));
@@ -1103,6 +1180,7 @@ function App() {
     };
     downloadReceiptImage(receipt);
     setSessionReceipts(list => [receipt, ...list]);
+    addSavedClient(receipt.businessName);
     setSelectedReceiptIds([]);
     setLastReceipt(receipt);
     setCart({});
@@ -1345,9 +1423,19 @@ function App() {
                       <button onClick={() => deleteLocalProduct(item.code)} style={{ background: "none", border: "none", padding: 0, display: "flex" }}><TrashIcon size={11} color="#B0532C" /></button>
                     )}
                   </div>
-                  <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.25, margin: "2px 0 3px" }}>{item.desc}</div>
+                  <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.25, margin: "2px 0 3px", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <span>{item.desc}</span>
+                    {item.offer && (
+                      <span style={{ fontSize: 9.5, fontWeight: 700, color: "#173A33", background: "#F1E8C9", borderRadius: 5, padding: "1px 6px", letterSpacing: 0.3 }}>OFERTA</span>
+                    )}
+                  </div>
                   <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: "#173A33" }}>{formatMoney(item.price)}</div>
                 </div>
+                {qty === 0 ? (
+                  <button onClick={() => toggleOffer(item.code, item.offer)} style={{ background: item.offer ? "#D9A441" : "#F4F2EC", color: item.offer ? "#173A33" : "#8A9A93", border: item.offer ? "1.5px solid #D9A441" : "1.5px solid #D8D4C8", borderRadius: 10, width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <TagIcon size={17} />
+                  </button>
+                ) : null}
                 {qty === 0 ? (
                   <button onClick={() => addToCart(item.code)} style={{ background: "#173A33", color: "#F4F2EC", border: "none", borderRadius: 10, width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <PlusIcon size={18} />
@@ -1499,6 +1587,33 @@ function App() {
             </div>
           )}
 
+          {sessionReceipts.length > 0 && (
+            <div style={{ background: "#FFFFFF", borderRadius: 12, marginBottom: 14, border: "1.5px solid #D8D4C8", overflow: "hidden" }}>
+              <button
+                onClick={() => setProfitPanelOpen(o => !o)}
+                style={{ width: "100%", background: "none", border: "none", padding: "11px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}
+              >
+                <div style={{ fontWeight: 700, fontSize: 13.5, color: "#173A33" }}>Ganancia por cliente</div>
+                <div style={{ fontSize: 12, color: "#6B7A74", fontWeight: 600 }}>{profitPanelOpen ? "Ocultar ▲" : "Ver ▼"}</div>
+              </button>
+              {profitPanelOpen && (
+                <div style={{ padding: "0 12px 12px" }}>
+                  {profitByClient.map(c => (
+                    <div key={c.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderTop: "1px solid #F0EEE6" }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
+                        <div style={{ fontSize: 11, color: "#6B7A74" }}>{c.count} venta{c.count === 1 ? "" : "s"} · vendido {formatMoney(c.total)}</div>
+                      </div>
+                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 13.5, color: "#2E8B57", marginLeft: 8, flexShrink: 0 }}>
+                        {formatMoney(c.profit)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
             <button
               onClick={exportBackup}
@@ -1584,8 +1699,15 @@ function App() {
                       <div style={{ fontSize: 12, color: "#6B7A74" }}>{fmtDate(r.date)} · {r.items.length} artículos</div>
                     </div>
 
-                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 13.5, flexShrink: 0, marginLeft: 4 }}>
-                      {formatMoney(r.total)}
+                    <div style={{ flexShrink: 0, marginLeft: 4, textAlign: "right" }}>
+                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 13.5 }}>
+                        {formatMoney(r.total)}
+                      </div>
+                      {r.totalProfit != null && (
+                        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 11, color: "#2E8B57" }}>
+                          +{formatMoney(r.totalProfit)}
+                        </div>
+                      )}
                     </div>
 
                     <button
@@ -1736,6 +1858,11 @@ function App() {
               <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 10, fontWeight: 700, fontSize: 15 }}>
                 <span>Total</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{formatMoney(selectedReceipt.total)}</span>
               </div>
+              {selectedReceipt.totalProfit != null && (
+                <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 4, fontWeight: 600, fontSize: 12.5, color: "#2E8B57" }}>
+                  <span>Ganancia de esta venta</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{formatMoney(selectedReceipt.totalProfit)}</span>
+                </div>
+              )}
             </div>
             <button onClick={() => shareReceipt(selectedReceipt)} style={{ background: "#25D366", color: "#fff", border: "none", borderRadius: 12, padding: "12px 20px", fontWeight: 700, fontSize: 14, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 8 }}>
               <ShareIcon size={16} /> Compartir por WhatsApp
@@ -1833,8 +1960,30 @@ function App() {
               {cartCount} artículos · {discountAmount > 0 ? (<>{formatMoney(cartTotal)} - {formatMoney(discountAmount)} desc. = <b>{formatMoney(finalTotal)}</b></>) : formatMoney(finalTotal)}
             </div>
             <label style={{ fontSize: 12.5, fontWeight: 600, color: "#173A33", marginBottom: 6, display: "block" }}>Nombre del negocio / despensa</label>
-            <input autoFocus value={businessName} onChange={e => setBusinessName(e.target.value)} placeholder="Ej: Despensa Doña Rosa"
-              style={{ width: "100%", border: "1.5px solid #D8D4C8", borderRadius: 10, padding: "12px 13px", fontSize: 14.5, outline: "none", background: "#FFFFFF", marginBottom: 16 }} />
+            <div style={{ position: "relative", marginBottom: 16 }}>
+              <input
+                autoFocus
+                value={businessName}
+                onChange={e => setBusinessName(e.target.value)}
+                onFocus={() => setClientSuggestOpen(true)}
+                onBlur={() => setTimeout(() => setClientSuggestOpen(false), 150)}
+                placeholder="Ej: Despensa Doña Rosa"
+                style={{ width: "100%", border: "1.5px solid #D8D4C8", borderRadius: 10, padding: "12px 13px", fontSize: 14.5, outline: "none", background: "#FFFFFF" }} />
+              {clientSuggestOpen && clientSuggestions.length > 0 && (
+                <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, background: "#FFFFFF", border: "1.5px solid #D8D4C8", borderRadius: 10, boxShadow: "0 4px 12px rgba(23,58,51,0.12)", zIndex: 5, overflow: "hidden" }}>
+                  {clientSuggestions.map(name => (
+                    <button
+                      key={name}
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => { setBusinessName(name); setClientSuggestOpen(false); }}
+                      style={{ width: "100%", textAlign: "left", background: "none", border: "none", padding: "10px 13px", fontSize: 14, color: "#173A33", borderTop: "1px solid #F0EEE6", cursor: "pointer" }}
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <button disabled={!businessName.trim()} onClick={handleCheckout}
               style={{ width: "100%", background: businessName.trim() ? "#173A33" : "#C7C2B4", color: "#F4F2EC", border: "none", borderRadius: 12, padding: "14px", fontWeight: 700, fontSize: 15 }}>
               Registrar venta
