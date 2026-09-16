@@ -598,6 +598,7 @@ const CopyIcon = (p) => <Icon {...p}><rect x="9" y="9" width="13" height="13" rx
 const RefreshIcon = (p) => <Icon {...p}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></Icon>;
 const SaveIcon = (p) => <Icon {...p}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></Icon>;
 const TagIcon = (p) => <Icon {...p}><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></Icon>;
+const SettingsIcon = (p) => <Icon {...p}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></Icon>;
 const PercentIcon = (p) => <Icon {...p}><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></Icon>;
 
 function App() {
@@ -1206,6 +1207,7 @@ function App() {
   const totalAllSales = useMemo(() => sessionReceipts.reduce((s, r) => s + r.total, 0), [sessionReceipts]);
   const totalAllProfit = useMemo(() => sessionReceipts.reduce((s, r) => s + (r.totalProfit != null ? r.totalProfit : 0), 0), [sessionReceipts]);
   const [profitPanelOpen, setProfitPanelOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const profitByClient = useMemo(() => {
     const byName = {};
     sessionReceipts.forEach(r => {
@@ -1625,50 +1627,37 @@ function App() {
         <div style={{ flex: 1, padding: "16px 14px 40px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 4 }}>
             <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 18 }}>Recibos de esta sesión</div>
-            {sessionReceipts.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
               <button
-                onClick={toggleSelectAllReceipts}
-                style={{
-                  background: selectedReceiptIds.length === sessionReceipts.length ? "#D9A441" : "#FFFFFF",
-                  color: "#173A33",
-                  border: "1.5px solid " + (selectedReceiptIds.length === sessionReceipts.length ? "#D9A441" : "#D8D4C8"),
-                  borderRadius: 10,
-                  padding: "8px 10px",
-                  fontWeight: 700,
-                  fontSize: 12,
-                  flexShrink: 0
-                }}
+                onClick={() => setSettingsOpen(true)}
+                style={{ background: "#FFFFFF", color: "#173A33", border: "1.5px solid #D8D4C8", borderRadius: 10, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center" }}
+                title="Configuración"
               >
-                {selectedReceiptIds.length === sessionReceipts.length ? "Deseleccionar todos" : "Seleccionar todos"}
+                <SettingsIcon size={16} />
               </button>
-            )}
-          </div>
-
-          <div style={{ fontSize: 12.5, color: "#6B7A74", marginBottom: 10 }}>
-            Los recibos quedan guardados en este celular, incluso si actualizás o usás la app sin señal. Seleccioná uno o varios para enviarlos por WhatsApp o eliminarlos.
-          </div>
-
-          <div style={{ background: "#FFFFFF", borderRadius: 12, padding: "11px 12px", marginBottom: 14, border: "1.5px solid #D8D4C8" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: "#173A33" }}>Carpeta de recibos</div>
-                <div style={{ fontSize: 11.5, color: "#6B7A74", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {receiptDirectoryName ? "Guardado automático en: " + receiptDirectoryName : receiptDirectorySupported ? "Elegí una carpeta para guardar los recibos" : "Se guardan solos en Descargas / Recibos Vendedores"}
-                </div>
-              </div>
-              {receiptDirectorySupported && (
-                <button onClick={chooseReceiptDirectory} style={{ background: "#173A33", color: "#F4F2EC", border: "none", borderRadius: 9, padding: "8px 10px", fontWeight: 700, fontSize: 11.5, flexShrink: 0 }}>
-                  Elegir carpeta
+              {sessionReceipts.length > 0 && (
+                <button
+                  onClick={toggleSelectAllReceipts}
+                  style={{
+                    background: selectedReceiptIds.length === sessionReceipts.length ? "#D9A441" : "#FFFFFF",
+                    color: "#173A33",
+                    border: "1.5px solid " + (selectedReceiptIds.length === sessionReceipts.length ? "#D9A441" : "#D8D4C8"),
+                    borderRadius: 10,
+                    padding: "8px 10px",
+                    fontWeight: 700,
+                    fontSize: 12,
+                    flexShrink: 0
+                  }}
+                >
+                  {selectedReceiptIds.length === sessionReceipts.length ? "Deseleccionar todos" : "Seleccionar todos"}
                 </button>
               )}
             </div>
           </div>
 
-          {receiptDirectorySupported && sessionReceipts.length > 0 && receiptDirectoryName && (
-            <button onClick={saveAllReceiptsToFolder} style={{ width: "100%", background: "#FFFFFF", color: "#173A33", border: "1.5px solid #D8D4C8", borderRadius: 12, padding: "10px 12px", fontWeight: 700, fontSize: 12.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 7, marginBottom: 14 }}>
-              <SaveIcon size={15} /> Guardar todos los recibos en esta carpeta
-            </button>
-          )}
+          <div style={{ fontSize: 12.5, color: "#6B7A74", marginBottom: 14 }}>
+            Los recibos quedan guardados en este celular, incluso si actualizás o usás la app sin señal. Seleccioná uno o varios para enviarlos por WhatsApp o eliminarlos.
+          </div>
 
           {sessionReceipts.length > 0 && (
             <div style={{ background: "#173A33", borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
@@ -1709,37 +1698,6 @@ function App() {
               )}
             </div>
           )}
-
-          <div style={{ background: "#FFFFFF", borderRadius: 12, padding: "11px 12px", marginBottom: 10, border: "1.5px solid #D8D4C8" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: "#173A33" }}>Carpeta de backups</div>
-                <div style={{ fontSize: 11.5, color: "#6B7A74", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {backupDirectoryName ? "Guardado automático en: " + backupDirectoryName : receiptDirectorySupported ? "Elegí una carpeta para guardar las copias de seguridad" : "Se guardan solos en Descargas / Backups Vendedores"}
-                </div>
-              </div>
-              {receiptDirectorySupported && (
-                <button onClick={chooseBackupDirectory} style={{ background: "#173A33", color: "#F4F2EC", border: "none", borderRadius: 9, padding: "8px 10px", fontWeight: 700, fontSize: 11.5, flexShrink: 0 }}>
-                  Elegir carpeta
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
-            <button
-              onClick={exportBackup}
-              style={{ background: "#FFFFFF", color: "#173A33", border: "1.5px solid #D8D4C8", borderRadius: 12, padding: "11px 10px", fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-            >
-              <SaveIcon size={15} /> Copia de seguridad
-            </button>
-            <button
-              onClick={triggerRestoreBackup}
-              style={{ background: "#FFFFFF", color: "#173A33", border: "1.5px solid #D8D4C8", borderRadius: 12, padding: "11px 10px", fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-            >
-              <RefreshIcon size={15} /> Restaurar copia
-            </button>
-          </div>
 
           {sessionReceipts.length === 0 ? (
             <div style={{ textAlign: "center", padding: "60px 20px", color: "#6B7A74" }}>
@@ -1937,6 +1895,74 @@ function App() {
             <CopyIcon size={16} /> Copiar recibo
           </button>
           <button onClick={() => setView("catalog")} style={{ background: "none", color: "#6B7A74", border: "none", padding: "10px 24px", fontWeight: 600, fontSize: 13.5, width: "100%" }}>Nueva venta</button>
+        </div>
+      )}
+
+      {settingsOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(23,58,51,0.5)", zIndex: 40, display: "flex", alignItems: "flex-end", maxWidth: 480, margin: "0 auto" }} onClick={() => setSettingsOpen(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#F4F2EC", borderRadius: "18px 18px 0 0", width: "100%", maxHeight: "85vh", overflowY: "auto", padding: "18px 18px 28px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 17 }}>Configuración</div>
+              <button onClick={() => setSettingsOpen(false)} style={{ background: "none", border: "none", padding: 4 }}><XIcon size={20} color="#6B7A74" /></button>
+            </div>
+
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: "#8A9A93", letterSpacing: 0.4, marginBottom: 8, textTransform: "uppercase" }}>Recibos</div>
+
+            <div style={{ background: "#FFFFFF", borderRadius: 12, padding: "11px 12px", marginBottom: 10, border: "1.5px solid #D8D4C8" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: "#173A33" }}>Carpeta de recibos</div>
+                  <div style={{ fontSize: 11.5, color: "#6B7A74", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {receiptDirectoryName ? "Guardado automático en: " + receiptDirectoryName : receiptDirectorySupported ? "Elegí una carpeta para guardar los recibos" : "Se guardan solos en Descargas / Recibos Vendedores"}
+                  </div>
+                </div>
+                {receiptDirectorySupported && (
+                  <button onClick={chooseReceiptDirectory} style={{ background: "#173A33", color: "#F4F2EC", border: "none", borderRadius: 9, padding: "8px 10px", fontWeight: 700, fontSize: 11.5, flexShrink: 0 }}>
+                    Elegir carpeta
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {receiptDirectorySupported && sessionReceipts.length > 0 && receiptDirectoryName && (
+              <button onClick={saveAllReceiptsToFolder} style={{ width: "100%", background: "#FFFFFF", color: "#173A33", border: "1.5px solid #D8D4C8", borderRadius: 12, padding: "10px 12px", fontWeight: 700, fontSize: 12.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 7, marginBottom: 18 }}>
+                <SaveIcon size={15} /> Guardar todos los recibos en esta carpeta
+              </button>
+            )}
+
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: "#8A9A93", letterSpacing: 0.4, marginBottom: 8, marginTop: receiptDirectorySupported && sessionReceipts.length > 0 && receiptDirectoryName ? 0 : 10, textTransform: "uppercase" }}>Copia de seguridad</div>
+
+            <div style={{ background: "#FFFFFF", borderRadius: 12, padding: "11px 12px", marginBottom: 10, border: "1.5px solid #D8D4C8" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: "#173A33" }}>Carpeta de backups</div>
+                  <div style={{ fontSize: 11.5, color: "#6B7A74", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {backupDirectoryName ? "Guardado automático en: " + backupDirectoryName : receiptDirectorySupported ? "Elegí una carpeta para guardar las copias de seguridad" : "Se guardan solos en Descargas / Backups Vendedores"}
+                  </div>
+                </div>
+                {receiptDirectorySupported && (
+                  <button onClick={chooseBackupDirectory} style={{ background: "#173A33", color: "#F4F2EC", border: "none", borderRadius: 9, padding: "8px 10px", fontWeight: 700, fontSize: 11.5, flexShrink: 0 }}>
+                    Elegir carpeta
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <button
+                onClick={exportBackup}
+                style={{ background: "#FFFFFF", color: "#173A33", border: "1.5px solid #D8D4C8", borderRadius: 12, padding: "11px 10px", fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+              >
+                <SaveIcon size={15} /> Copia de seguridad
+              </button>
+              <button
+                onClick={triggerRestoreBackup}
+                style={{ background: "#FFFFFF", color: "#173A33", border: "1.5px solid #D8D4C8", borderRadius: 12, padding: "11px 10px", fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+              >
+                <RefreshIcon size={15} /> Restaurar copia
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
