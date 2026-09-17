@@ -388,9 +388,30 @@ const CheckSquareIcon = (p) => <Icon {...p}><polyline points="9 11 12 14 22 4"/>
 const SquareIcon = (p) => <Icon {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></Icon>;
 
 function App() {
-  const [items, setItems] = useState(FALLBACK_ITEMS);
+  // El catálogo se guarda en el celular cada vez que sincroniza bien, así
+  // si después no hay señal la app abre con la última lista conocida en
+  // vez de quedar vacía.
+  const [items, setItems] = useState(() => {
+    try {
+      const saved = localStorage.getItem("vendedores_catalog_cache");
+      return saved ? JSON.parse(saved) : FALLBACK_ITEMS;
+    } catch (e) { return FALLBACK_ITEMS; }
+  });
+  // Ofertas marcadas a mano desde la app: se guardan aparte de la hoja para
+  // que no se pisen cada vez que se sincroniza con Google Sheets.
+  const [offerOverrides, setOfferOverrides] = useState(() => {
+    try {
+      const saved = localStorage.getItem("vendedores_offer_overrides");
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) { return {}; }
+  });
   const [catalogSource, setCatalogSource] = useState("loading");
-  const [lastSync, setLastSync] = useState(Date.now());
+  const [lastSync, setLastSync] = useState(() => {
+    try {
+      const saved = localStorage.getItem("vendedores_last_sync");
+      return saved ? Number(saved) : Date.now();
+    } catch (e) { return Date.now(); }
+  });
   const [activeTab, setActiveTab] = useState("catalog"); // 'catalog' | 'cart' | 'receipts'
   const [query, setQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("Todos");
@@ -481,19 +502,27 @@ function App() {
                 if (!r || !r[nameIdx]) continue;
                 const p = parseFloat(String(r[priceIdx]).replace(/[^\d.-]/g, "")) || 0;
                 const c = costIdx !== -1 ? (parseFloat(String(r[costIdx]).replace(/[^\d.-]/g, "")) || 0) : 0;
+                const code = (codeIdx !== -1 && r[codeIdx]) ? String(r[codeIdx]).trim() : "SHEET-" + i;
                 list.push({
-                  code: (codeIdx !== -1 && r[codeIdx]) ? String(r[codeIdx]).trim() : "SHEET-" + i,
+                  code,
                   desc: String(r[nameIdx]).trim(),
                   price: p,
                   cost: c,
                   category: (catIdx !== -1 && r[catIdx]) ? String(r[catIdx]).trim() : "General",
-                  offer: false
+                  // Si el artículo tiene una oferta marcada a mano desde la app,
+                  // se respeta esa marca en vez de pisarla con la hoja.
+                  offer: !!offerOverrides[code]
                 });
               }
               if (list.length > 0) {
                 setItems(list);
                 setCatalogSource("remote");
-                setLastSync(Date.now());
+                const now = Date.now();
+                setLastSync(now);
+                try {
+                  localStorage.setItem("vendedores_catalog_cache", JSON.stringify(list));
+                  localStorage.setItem("vendedores_last_sync", String(now));
+                } catch (e) {}
                 notify(`Catálogo sincronizado: ${list.length} productos`);
                 success = true;
                 break;
@@ -507,9 +536,9 @@ function App() {
     }
     if (!success) {
       setCatalogSource("local");
-      notify("Sin conexión con la hoja: revisá que esté compartida como pública");
+      notify(items.length > 0 ? "Sin conexión: mostrando el último catálogo guardado" : "Sin conexión con la hoja: revisá que esté compartida como pública");
     }
-  }, []);
+  }, [offerOverrides, items.length]);
 
   // Sincroniza con la hoja apenas se abre la app, sin esperar a que
   // el usuario toque el botón de refrescar.
@@ -632,7 +661,18 @@ function App() {
   const toggleOfferFlag = (code) => {
     // Check if in local items or items
     setLocalItems(prev => prev.map(it => it.code === code ? { ...it, offer: !it.offer } : it));
-    setItems(prev => prev.map(it => it.code === code ? { ...it, offer: !it.offer } : it));
+    setItems(prev => prev.map(it => {
+      if (it.code !== code) return it;
+      const newOffer = !it.offer;
+      // Se guarda la marca aparte para que la próxima sincronización con
+      // la hoja no la borre.
+      setOfferOverrides(prevOv => {
+        const nextOv = { ...prevOv, [code]: newOffer };
+        try { localStorage.setItem("vendedores_offer_overrides", JSON.stringify(nextOv)); } catch (e) {}
+        return nextOv;
+      });
+      return { ...it, offer: newOffer };
+    }));
     notify("Estado de oferta actualizado");
   };
 
